@@ -1,5 +1,6 @@
 import { Home, MessageCircle, Bike, History } from "lucide-react";
 import { useLocation, useNavigate } from "react-router-dom";
+import hoomiLogo from "@/assets/hoomi-logo.png";
 
 const navItems = [
   { icon: Home, label: "Home", path: "/" },
@@ -39,7 +40,11 @@ export function BottomNav() {
                   className="relative -mt-8 flex h-14 w-14 items-center justify-center rounded-full bg-primary btn-shadow transition-transform hover:scale-105 active:scale-95"
                 >
                   <div className="flex h-10 w-10 items-center justify-center rounded-full bg-primary-foreground">
-                    <span className="text-xl font-bold text-primary">H</span>
+                    <img
+                      src={hoomiLogo}
+                      alt="Hoomi Logo"
+                      className="h-8 w-8"
+                    />
                   </div>
                 </button>
                 
