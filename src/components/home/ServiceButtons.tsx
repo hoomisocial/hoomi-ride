@@ -9,7 +9,7 @@ export function ServiceButtons() {
       <div className="grid grid-cols-2 gap-3">
         <button
           onClick={() => navigate("/transport")}
-          className="card-shadow flex flex-col items-center gap-2 rounded-2xl bg-card p-6 transition-transform active:scale-[0.98]"
+          className="flex flex-col items-center gap-2 rounded-2xl bg-card p-6 shadow-lg transition-transform active:scale-[0.98]"
         >
           <div className="flex h-12 w-12 items-center justify-center rounded-full bg-primary/10">
             <Bike className="h-6 w-6 text-primary" />
@@ -19,7 +19,7 @@ export function ServiceButtons() {
 
         <button
           onClick={() => navigate("/delivery")}
-          className="card-shadow flex flex-col items-center gap-2 rounded-2xl bg-card p-6 transition-transform active:scale-[0.98]"
+          className="flex flex-col items-center gap-2 rounded-2xl bg-card p-6 shadow-lg transition-transform active:scale-[0.98]"
         >
           <div className="flex h-12 w-12 items-center justify-center rounded-full bg-primary/10">
             <Package className="h-6 w-6 text-primary" />
