@@ -33,9 +33,9 @@ export function BottomNav() {
                   <span className="text-[10px] font-medium">{item.label}</span>
                 </button>
                 
-                {/* Center Hoomi Button */}
+                {/* Center Hoomi Button - Talk to Agent */}
                 <button
-                  onClick={() => navigate("/")}
+                  onClick={() => navigate("/hoomi-agent")}
                   className="relative -mt-8 flex h-14 w-14 items-center justify-center rounded-full bg-primary btn-shadow transition-transform hover:scale-105 active:scale-95"
                 >
                   <div className="flex h-10 w-10 items-center justify-center rounded-full bg-primary-foreground">
