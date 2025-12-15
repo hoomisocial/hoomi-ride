@@ -13,6 +13,7 @@ import HoomiAgent from "./pages/HoomiAgent";
 import History from "./pages/History";
 import Chat from "./pages/Chat";
 import Activity from "./pages/Activity";
+import Auth from "./pages/Auth";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -25,16 +26,17 @@ const App = () => (
       <BrowserRouter>
         <Routes>
           <Route path="/" element={<Index />} />
+          <Route path="/auth" element={<Auth />} />
           <Route path="/transport" element={<Transport />} />
           <Route path="/delivery" element={<Delivery />} />
           <Route path="/delivery/details" element={<DeliveryDetails />} />
           <Route path="/location/:id" element={<LocationPicker />} />
           <Route path="/tracking/:id" element={<Tracking />} />
-          <Route path="/history" element={<History />} />
           <Route path="/chat" element={<Chat />} />
           <Route path="/chat/:id" element={<Chat />} />
           <Route path="/activity" element={<Activity />} />
           <Route path="/hoomi-agent" element={<HoomiAgent />} />
+          <Route path="/history" element={<History />} />
           <Route path="*" element={<NotFound />} />
         </Routes>
       </BrowserRouter>
