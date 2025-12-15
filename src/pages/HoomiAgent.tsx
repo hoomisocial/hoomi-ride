@@ -1,42 +1,58 @@
 import { useConversation } from "@elevenlabs/react";
-import { useState, useCallback } from "react";
-import { Mic, Phone, PhoneOff, Volume2 } from "lucide-react";
+import { useState, useCallback, useRef, useEffect } from "react";
+import { Send, Settings, Bot } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { MobileLayout } from "@/components/layout/MobileLayout";
 import { useToast } from "@/hooks/use-toast";
+
+interface Message {
+  id: string;
+  role: "user" | "agent";
+  text: string;
+  timestamp: Date;
+}
 
 const HoomiAgent = () => {
   const navigate = useNavigate();
   const { toast } = useToast();
   const [isConnecting, setIsConnecting] = useState(false);
   const [agentId, setAgentId] = useState("");
-  const [showAgentInput, setShowAgentInput] = useState(true);
-  const [transcript, setTranscript] = useState<Array<{ role: string; text: string }>>([]);
+  const [showSettings, setShowSettings] = useState(true);
+  const [messages, setMessages] = useState<Message[]>([]);
+  const [inputText, setInputText] = useState("");
+  const messagesEndRef = useRef<HTMLDivElement>(null);
 
   const conversation = useConversation({
     onConnect: () => {
       console.log("Connected to Hoomi Agent");
+      setShowSettings(false);
       toast({
         title: "Connected",
-        description: "You're now talking to Hoomi Bot!",
+        description: "You're now chatting with Hoomi Bot!",
       });
     },
     onDisconnect: () => {
       console.log("Disconnected from Hoomi Agent");
-      setShowAgentInput(true);
+      setShowSettings(true);
     },
     onMessage: (message: any) => {
       console.log("Message:", message);
       if (message.type === "user_transcript") {
-        setTranscript((prev) => [
-          ...prev,
-          { role: "user", text: message.user_transcription_event?.user_transcript || "" },
-        ]);
+        const text = message.user_transcription_event?.user_transcript;
+        if (text) {
+          setMessages((prev) => [
+            ...prev,
+            { id: Date.now().toString(), role: "user", text, timestamp: new Date() },
+          ]);
+        }
       } else if (message.type === "agent_response") {
-        setTranscript((prev) => [
-          ...prev,
-          { role: "agent", text: message.agent_response_event?.agent_response || "" },
-        ]);
+        const text = message.agent_response_event?.agent_response;
+        if (text) {
+          setMessages((prev) => [
+            ...prev,
+            { id: Date.now().toString(), role: "agent", text, timestamp: new Date() },
+          ]);
+        }
       }
     },
     onError: (error: any) => {
@@ -50,6 +66,10 @@ const HoomiAgent = () => {
     },
   });
 
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [messages]);
+
   const startConversation = useCallback(async () => {
     if (!agentId.trim()) {
       toast({
@@ -62,20 +82,20 @@ const HoomiAgent = () => {
 
     setIsConnecting(true);
     try {
+      // Request mic permission but we'll use text mode
       await navigator.mediaDevices.getUserMedia({ audio: true });
 
       await (conversation as any).startSession({
         agentId: agentId.trim(),
       });
 
-      setShowAgentInput(false);
-      setTranscript([]);
+      setMessages([]);
     } catch (error) {
       console.error("Failed to start conversation:", error);
       toast({
         variant: "destructive",
-        title: "Microphone Access Required",
-        description: "Please enable microphone access to talk to Hoomi Bot.",
+        title: "Connection Failed",
+        description: "Could not connect to Hoomi Bot. Please check your Agent ID.",
       });
     } finally {
       setIsConnecting(false);
@@ -85,135 +105,184 @@ const HoomiAgent = () => {
   const endConversation = useCallback(async () => {
     await conversation.endSession();
     toast({
-      title: "Call Ended",
-      description: "Thanks for talking to Hoomi Bot!",
+      title: "Disconnected",
+      description: "Chat session ended.",
     });
   }, [conversation, toast]);
 
+  const sendMessage = useCallback(() => {
+    if (!inputText.trim() || conversation.status !== "connected") return;
+
+    const text = inputText.trim();
+    setMessages((prev) => [
+      ...prev,
+      { id: Date.now().toString(), role: "user", text, timestamp: new Date() },
+    ]);
+
+    // Send text message to agent
+    (conversation as any).sendUserMessage?.(text);
+    setInputText("");
+  }, [conversation, inputText]);
+
+  const handleKeyPress = (e: React.KeyboardEvent) => {
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      sendMessage();
+    }
+  };
+
   return (
-    <MobileLayout className="bg-gradient-to-b from-primary to-primary-dark">
+    <MobileLayout className="flex flex-col bg-background">
       {/* Header */}
-      <div className="flex items-center justify-between px-4 py-4">
+      <header className="sticky top-0 z-50 flex items-center justify-between bg-primary px-4 py-3">
         <button
           onClick={() => navigate(-1)}
           className="text-primary-foreground/80 hover:text-primary-foreground"
         >
           ← Back
         </button>
-        <h1 className="text-lg font-semibold text-primary-foreground">Hoomi Bot</h1>
-        <div className="w-12" />
-      </div>
-
-      {/* Main Content */}
-      <div className="flex flex-1 flex-col items-center px-4 pt-8">
-        {/* Avatar */}
-        <div className="relative">
-          <div
-            className={`flex h-32 w-32 items-center justify-center rounded-full bg-primary-foreground/20 ${
-              conversation.isSpeaking ? "animate-pulse" : ""
-            }`}
-          >
-            <div className="flex h-24 w-24 items-center justify-center rounded-full bg-primary-foreground">
-              <span className="text-5xl font-bold text-primary">H</span>
-            </div>
-          </div>
-
-          {/* Speaking indicator */}
-          {conversation.status === "connected" && (
-            <div className="absolute -bottom-2 left-1/2 -translate-x-1/2">
-              <div className="flex items-center gap-1 rounded-full bg-card px-3 py-1">
-                {conversation.isSpeaking ? (
-                  <>
-                    <Volume2 className="h-4 w-4 text-success animate-pulse" />
-                    <span className="text-xs font-medium text-success">Speaking</span>
-                  </>
-                ) : (
-                  <>
-                    <Mic className="h-4 w-4 text-primary" />
-                    <span className="text-xs font-medium text-primary">Listening</span>
-                  </>
-                )}
-              </div>
-            </div>
-          )}
+        <div className="flex items-center gap-2">
+          <Bot className="h-5 w-5 text-primary-foreground" />
+          <h1 className="text-lg font-semibold text-primary-foreground">Hoomi Bot</h1>
         </div>
+        <button
+          onClick={() => setShowSettings(!showSettings)}
+          className="text-primary-foreground/80 hover:text-primary-foreground"
+        >
+          <Settings className="h-5 w-5" />
+        </button>
+      </header>
 
-        {/* Status Text */}
-        <p className="mt-8 text-center text-primary-foreground/80">
-          {conversation.status === "connected"
-            ? conversation.isSpeaking
-              ? "Hoomi is speaking..."
-              : "Hoomi is listening..."
-            : "Connect to talk with Hoomi Bot"}
-        </p>
+      {/* Settings Panel */}
+      {showSettings && (
+        <div className="border-b border-border bg-card p-4 fade-in">
+          <div className="space-y-3">
+            <div>
+              <label className="text-sm font-medium text-foreground">ElevenLabs Agent ID</label>
+              <input
+                type="text"
+                value={agentId}
+                onChange={(e) => setAgentId(e.target.value)}
+                placeholder="Enter your Agent ID"
+                className="mt-1 w-full rounded-lg border border-input bg-background px-4 py-2 text-foreground outline-none focus:ring-2 focus:ring-primary/20"
+              />
+              <p className="mt-1 text-xs text-muted-foreground">
+                Get your Agent ID from the ElevenLabs dashboard. The agent can use MCP tools to call APIs.
+              </p>
+            </div>
 
-        {/* Agent ID Input */}
-        {showAgentInput && (
-          <div className="mt-6 w-full max-w-xs space-y-4">
-            <input
-              type="text"
-              value={agentId}
-              onChange={(e) => setAgentId(e.target.value)}
-              placeholder="Enter ElevenLabs Agent ID"
-              className="w-full rounded-xl border-0 bg-primary-foreground/10 px-4 py-3 text-center text-primary-foreground placeholder:text-primary-foreground/50 outline-none focus:ring-2 focus:ring-primary-foreground/30"
-            />
-            <p className="text-center text-xs text-primary-foreground/60">
-              Get your Agent ID from the ElevenLabs dashboard
+            {conversation.status === "disconnected" ? (
+              <button
+                onClick={startConversation}
+                disabled={isConnecting || !agentId.trim()}
+                className="btn-shadow w-full rounded-lg bg-primary py-3 font-semibold text-primary-foreground disabled:opacity-50"
+              >
+                {isConnecting ? "Connecting..." : "Connect to Hoomi Bot"}
+              </button>
+            ) : (
+              <button
+                onClick={endConversation}
+                className="w-full rounded-lg bg-destructive py-3 font-semibold text-destructive-foreground"
+              >
+                Disconnect
+              </button>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Connection Status */}
+      {conversation.status === "connected" && !showSettings && (
+        <div className="flex items-center justify-center gap-2 bg-success/10 py-2">
+          <div className="h-2 w-2 animate-pulse rounded-full bg-success" />
+          <span className="text-xs font-medium text-success">Connected to Hoomi Bot</span>
+        </div>
+      )}
+
+      {/* Messages */}
+      <div className="flex-1 overflow-y-auto p-4">
+        {messages.length === 0 && conversation.status === "connected" && (
+          <div className="flex flex-col items-center justify-center py-12 text-center">
+            <div className="flex h-16 w-16 items-center justify-center rounded-full bg-primary/10">
+              <Bot className="h-8 w-8 text-primary" />
+            </div>
+            <p className="mt-4 font-medium text-foreground">Chat with Hoomi Bot</p>
+            <p className="mt-1 text-sm text-muted-foreground">
+              Ask about deliveries, track orders, or get help with bookings.
             </p>
           </div>
         )}
 
-        {/* Transcript */}
-        {transcript.length > 0 && (
-          <div className="mt-6 w-full max-w-sm space-y-2 overflow-y-auto max-h-48">
-            {transcript.slice(-4).map((msg, index) => (
-              <div
-                key={index}
-                className={`rounded-xl px-4 py-2 text-sm ${
-                  msg.role === "user"
-                    ? "bg-primary-foreground/10 text-primary-foreground ml-8"
-                    : "bg-primary-foreground/20 text-primary-foreground mr-8"
-                }`}
-              >
-                <span className="text-xs font-medium opacity-70">
-                  {msg.role === "user" ? "You" : "Hoomi"}:
-                </span>{" "}
-                {msg.text}
-              </div>
-            ))}
+        {messages.length === 0 && conversation.status === "disconnected" && (
+          <div className="flex flex-col items-center justify-center py-12 text-center">
+            <div className="flex h-16 w-16 items-center justify-center rounded-full bg-muted">
+              <Bot className="h-8 w-8 text-muted-foreground" />
+            </div>
+            <p className="mt-4 font-medium text-foreground">Connect to start chatting</p>
+            <p className="mt-1 text-sm text-muted-foreground">
+              Enter your Agent ID above to begin.
+            </p>
           </div>
         )}
+
+        <div className="space-y-4">
+          {messages.map((msg) => (
+            <div
+              key={msg.id}
+              className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}
+            >
+              <div
+                className={`max-w-[80%] rounded-2xl px-4 py-3 ${
+                  msg.role === "user"
+                    ? "bg-primary text-primary-foreground"
+                    : "bg-muted text-foreground"
+                }`}
+              >
+                {msg.role === "agent" && (
+                  <div className="mb-1 flex items-center gap-1">
+                    <Bot className="h-3 w-3" />
+                    <span className="text-xs font-medium opacity-70">Hoomi</span>
+                  </div>
+                )}
+                <p className="text-sm whitespace-pre-wrap">{msg.text}</p>
+                <p
+                  className={`mt-1 text-[10px] ${
+                    msg.role === "user" ? "text-primary-foreground/60" : "text-muted-foreground"
+                  }`}
+                >
+                  {msg.timestamp.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+                </p>
+              </div>
+            </div>
+          ))}
+        </div>
+        <div ref={messagesEndRef} />
       </div>
 
-      {/* Call Button */}
-      <div className="flex flex-col items-center gap-4 px-4 pb-12 pt-8">
-        {conversation.status === "disconnected" ? (
+      {/* Input */}
+      <div className="border-t border-border bg-card p-4 safe-bottom">
+        <div className="flex items-center gap-3">
+          <input
+            type="text"
+            value={inputText}
+            onChange={(e) => setInputText(e.target.value)}
+            onKeyPress={handleKeyPress}
+            placeholder={
+              conversation.status === "connected"
+                ? "Type a message..."
+                : "Connect to start chatting"
+            }
+            disabled={conversation.status !== "connected"}
+            className="flex-1 rounded-full border border-border bg-background px-4 py-3 text-sm text-foreground outline-none focus:ring-2 focus:ring-primary/20 disabled:opacity-50"
+          />
           <button
-            onClick={startConversation}
-            disabled={isConnecting}
-            className="flex h-20 w-20 items-center justify-center rounded-full bg-success text-success-foreground shadow-lg transition-transform hover:scale-105 active:scale-95 disabled:opacity-50"
+            onClick={sendMessage}
+            disabled={conversation.status !== "connected" || !inputText.trim()}
+            className="flex h-12 w-12 items-center justify-center rounded-full bg-primary text-primary-foreground disabled:opacity-50"
           >
-            {isConnecting ? (
-              <div className="h-8 w-8 animate-spin rounded-full border-4 border-success-foreground/30 border-t-success-foreground" />
-            ) : (
-              <Phone className="h-8 w-8" />
-            )}
+            <Send className="h-5 w-5" />
           </button>
-        ) : (
-          <button
-            onClick={endConversation}
-            className="flex h-20 w-20 items-center justify-center rounded-full bg-destructive text-destructive-foreground shadow-lg transition-transform hover:scale-105 active:scale-95"
-          >
-            <PhoneOff className="h-8 w-8" />
-          </button>
-        )}
-        <p className="text-sm text-primary-foreground/60">
-          {conversation.status === "disconnected"
-            ? isConnecting
-              ? "Connecting..."
-              : "Tap to call Hoomi"
-            : "Tap to end call"}
-        </p>
+        </div>
       </div>
     </MobileLayout>
   );
