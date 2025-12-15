@@ -5,7 +5,7 @@ export function ServiceButtons() {
   const navigate = useNavigate();
 
   return (
-    <section className="-mt-4 px-4">
+    <section className="relative z-10 -mt-4 px-4">
       <div className="grid grid-cols-2 gap-3">
         <button
           onClick={() => navigate("/transport")}
