@@ -24,10 +24,18 @@ const promos = [
 export function PromoSlider() {
   const scrollRef = useRef<HTMLDivElement>(null);
 
+  const handleWheel = (e: React.WheelEvent<HTMLDivElement>) => {
+    if (scrollRef.current) {
+      e.preventDefault();
+      scrollRef.current.scrollLeft += e.deltaY;
+    }
+  };
+
   return (
     <section className="mt-4">
       <div
         ref={scrollRef}
+        onWheel={handleWheel}
         className="flex gap-3 overflow-x-auto px-4 pb-2 scrollbar-hide"
         style={{ scrollSnapType: "x mandatory", scrollbarWidth: "none", msOverflowStyle: "none" }}
       >
