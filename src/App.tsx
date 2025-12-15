@@ -9,6 +9,7 @@ import Delivery from "./pages/Delivery";
 import DeliveryDetails from "./pages/DeliveryDetails";
 import LocationPicker from "./pages/LocationPicker";
 import Tracking from "./pages/Tracking";
+import HoomiAgent from "./pages/HoomiAgent";
 import History from "./pages/History";
 import Chat from "./pages/Chat";
 import Activity from "./pages/Activity";
@@ -33,6 +34,7 @@ const App = () => (
           <Route path="/chat" element={<Chat />} />
           <Route path="/chat/:id" element={<Chat />} />
           <Route path="/activity" element={<Activity />} />
+          <Route path="/hoomi-agent" element={<HoomiAgent />} />
           <Route path="*" element={<NotFound />} />
         </Routes>
       </BrowserRouter>
