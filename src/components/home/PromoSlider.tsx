@@ -28,8 +28,8 @@ export function PromoSlider() {
     <section className="mt-4">
       <div
         ref={scrollRef}
-        className="flex gap-3 overflow-x-auto px-4 pb-2 scrollbar-none"
-        style={{ scrollSnapType: "x mandatory" }}
+        className="flex gap-3 overflow-x-auto px-4 pb-2 scrollbar-hide"
+        style={{ scrollSnapType: "x mandatory", scrollbarWidth: "none", msOverflowStyle: "none" }}
       >
         {promos.map((promo) => (
           <div
