@@ -1,9 +1,11 @@
 import { useConversation } from "@elevenlabs/react";
 import { useState, useCallback, useRef, useEffect } from "react";
-import { Send, Settings, Bot } from "lucide-react";
+import { Send, Bot, LogOut } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { MobileLayout } from "@/components/layout/MobileLayout";
 import { useToast } from "@/hooks/use-toast";
+import { supabase } from "@/integrations/supabase/client";
+import { User } from "@supabase/supabase-js";
 
 interface Message {
   id: string;
@@ -15,17 +17,38 @@ interface Message {
 const HoomiAgent = () => {
   const navigate = useNavigate();
   const { toast } = useToast();
+  const [user, setUser] = useState<User | null>(null);
   const [isConnecting, setIsConnecting] = useState(false);
-  const [agentId, setAgentId] = useState("");
-  const [showSettings, setShowSettings] = useState(true);
   const [messages, setMessages] = useState<Message[]>([]);
   const [inputText, setInputText] = useState("");
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
+  // Check auth status
+  useEffect(() => {
+    const checkAuth = async () => {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) {
+        navigate("/auth");
+        return;
+      }
+      setUser(session.user);
+    };
+    checkAuth();
+
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+      if (!session) {
+        navigate("/auth");
+      } else {
+        setUser(session.user);
+      }
+    });
+
+    return () => subscription.unsubscribe();
+  }, [navigate]);
+
   const conversation = useConversation({
     onConnect: () => {
       console.log("Connected to Hoomi Agent");
-      setShowSettings(false);
       toast({
         title: "Connected",
         description: "You're now chatting with Hoomi Bot!",
@@ -33,7 +56,6 @@ const HoomiAgent = () => {
     },
     onDisconnect: () => {
       console.log("Disconnected from Hoomi Agent");
-      setShowSettings(true);
     },
     onMessage: (message: any) => {
       console.log("Message:", message);
@@ -70,45 +92,57 @@ const HoomiAgent = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
 
-  const startConversation = useCallback(async () => {
-    if (!agentId.trim()) {
-      toast({
-        variant: "destructive",
-        title: "Agent ID Required",
-        description: "Please enter your ElevenLabs Agent ID",
-      });
-      return;
+  // Auto-connect when user is authenticated
+  useEffect(() => {
+    if (user && conversation.status === "disconnected" && !isConnecting) {
+      connectToAgent();
     }
+  }, [user]);
 
+  const connectToAgent = async () => {
     setIsConnecting(true);
     try {
-      // Request mic permission but we'll use text mode
+      // Request mic permission
       await navigator.mediaDevices.getUserMedia({ audio: true });
 
+      // Get signed URL from our edge function
+      const { data, error } = await supabase.functions.invoke("elevenlabs-token");
+
+      if (error) {
+        console.error("Token error:", error);
+        throw new Error("Failed to get connection token");
+      }
+
+      if (!data?.signed_url) {
+        console.error("No signed URL received:", data);
+        throw new Error("No connection URL received");
+      }
+
+      console.log("Got signed URL, connecting...");
+
+      // Connect using the signed URL
       await (conversation as any).startSession({
-        agentId: agentId.trim(),
+        signedUrl: data.signed_url,
       });
 
       setMessages([]);
-    } catch (error) {
-      console.error("Failed to start conversation:", error);
+    } catch (error: any) {
+      console.error("Failed to connect:", error);
       toast({
         variant: "destructive",
         title: "Connection Failed",
-        description: "Could not connect to Hoomi Bot. Please check your Agent ID.",
+        description: error.message || "Could not connect to Hoomi Bot.",
       });
     } finally {
       setIsConnecting(false);
     }
-  }, [conversation, agentId, toast]);
+  };
 
-  const endConversation = useCallback(async () => {
+  const handleLogout = async () => {
     await conversation.endSession();
-    toast({
-      title: "Disconnected",
-      description: "Chat session ended.",
-    });
-  }, [conversation, toast]);
+    await supabase.auth.signOut();
+    navigate("/auth");
+  };
 
   const sendMessage = useCallback(() => {
     if (!inputText.trim() || conversation.status !== "connected") return;
@@ -119,7 +153,6 @@ const HoomiAgent = () => {
       { id: Date.now().toString(), role: "user", text, timestamp: new Date() },
     ]);
 
-    // Send text message to agent
     (conversation as any).sendUserMessage?.(text);
     setInputText("");
   }, [conversation, inputText]);
@@ -131,12 +164,14 @@ const HoomiAgent = () => {
     }
   };
 
+  const userName = user?.user_metadata?.name || user?.email?.split("@")[0] || "User";
+
   return (
     <MobileLayout className="flex flex-col bg-background">
       {/* Header */}
       <header className="sticky top-0 z-50 flex items-center justify-between bg-primary px-4 py-3">
         <button
-          onClick={() => navigate(-1)}
+          onClick={() => navigate("/")}
           className="text-primary-foreground/80 hover:text-primary-foreground"
         >
           ← Back
@@ -146,62 +181,38 @@ const HoomiAgent = () => {
           <h1 className="text-lg font-semibold text-primary-foreground">Hoomi Bot</h1>
         </div>
         <button
-          onClick={() => setShowSettings(!showSettings)}
+          onClick={handleLogout}
           className="text-primary-foreground/80 hover:text-primary-foreground"
         >
-          <Settings className="h-5 w-5" />
+          <LogOut className="h-5 w-5" />
         </button>
       </header>
 
-      {/* Settings Panel */}
-      {showSettings && (
-        <div className="border-b border-border bg-card p-4 fade-in">
-          <div className="space-y-3">
-            <div>
-              <label className="text-sm font-medium text-foreground">ElevenLabs Agent ID</label>
-              <input
-                type="text"
-                value={agentId}
-                onChange={(e) => setAgentId(e.target.value)}
-                placeholder="Enter your Agent ID"
-                className="mt-1 w-full rounded-lg border border-input bg-background px-4 py-2 text-foreground outline-none focus:ring-2 focus:ring-primary/20"
-              />
-              <p className="mt-1 text-xs text-muted-foreground">
-                Get your Agent ID from the ElevenLabs dashboard. The agent can use MCP tools to call APIs.
-              </p>
-            </div>
-
-            {conversation.status === "disconnected" ? (
-              <button
-                onClick={startConversation}
-                disabled={isConnecting || !agentId.trim()}
-                className="btn-shadow w-full rounded-lg bg-primary py-3 font-semibold text-primary-foreground disabled:opacity-50"
-              >
-                {isConnecting ? "Connecting..." : "Connect to Hoomi Bot"}
-              </button>
-            ) : (
-              <button
-                onClick={endConversation}
-                className="w-full rounded-lg bg-destructive py-3 font-semibold text-destructive-foreground"
-              >
-                Disconnect
-              </button>
-            )}
-          </div>
-        </div>
-      )}
-
       {/* Connection Status */}
-      {conversation.status === "connected" && !showSettings && (
-        <div className="flex items-center justify-center gap-2 bg-success/10 py-2">
-          <div className="h-2 w-2 animate-pulse rounded-full bg-success" />
-          <span className="text-xs font-medium text-success">Connected to Hoomi Bot</span>
-        </div>
-      )}
+      <div className={`flex items-center justify-center gap-2 py-2 ${
+        conversation.status === "connected" ? "bg-success/10" : "bg-warning/10"
+      }`}>
+        <div className={`h-2 w-2 rounded-full ${
+          conversation.status === "connected" ? "animate-pulse bg-success" : "bg-warning"
+        }`} />
+        <span className={`text-xs font-medium ${
+          conversation.status === "connected" ? "text-success" : "text-warning"
+        }`}>
+          {isConnecting ? "Connecting..." : conversation.status === "connected" ? `Hi ${userName}! Chat with Hoomi` : "Disconnected"}
+        </span>
+        {conversation.status === "disconnected" && !isConnecting && (
+          <button
+            onClick={connectToAgent}
+            className="ml-2 rounded-full bg-primary px-3 py-1 text-xs font-medium text-primary-foreground"
+          >
+            Reconnect
+          </button>
+        )}
+      </div>
 
       {/* Messages */}
       <div className="flex-1 overflow-y-auto p-4">
-        {messages.length === 0 && conversation.status === "connected" && (
+        {messages.length === 0 && (
           <div className="flex flex-col items-center justify-center py-12 text-center">
             <div className="flex h-16 w-16 items-center justify-center rounded-full bg-primary/10">
               <Bot className="h-8 w-8 text-primary" />
@@ -209,18 +220,6 @@ const HoomiAgent = () => {
             <p className="mt-4 font-medium text-foreground">Chat with Hoomi Bot</p>
             <p className="mt-1 text-sm text-muted-foreground">
               Ask about deliveries, track orders, or get help with bookings.
-            </p>
-          </div>
-        )}
-
-        {messages.length === 0 && conversation.status === "disconnected" && (
-          <div className="flex flex-col items-center justify-center py-12 text-center">
-            <div className="flex h-16 w-16 items-center justify-center rounded-full bg-muted">
-              <Bot className="h-8 w-8 text-muted-foreground" />
-            </div>
-            <p className="mt-4 font-medium text-foreground">Connect to start chatting</p>
-            <p className="mt-1 text-sm text-muted-foreground">
-              Enter your Agent ID above to begin.
             </p>
           </div>
         )}
@@ -270,7 +269,7 @@ const HoomiAgent = () => {
             placeholder={
               conversation.status === "connected"
                 ? "Type a message..."
-                : "Connect to start chatting"
+                : "Connecting..."
             }
             disabled={conversation.status !== "connected"}
             className="flex-1 rounded-full border border-border bg-background px-4 py-3 text-sm text-foreground outline-none focus:ring-2 focus:ring-primary/20 disabled:opacity-50"
