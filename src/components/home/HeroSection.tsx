@@ -1,15 +1,13 @@
-import heroRider from "@/assets/hero-rider.png";
+import heroCover from "@/assets/hero-cover.png";
 
 export function HeroSection() {
   return (
-    <section className="relative overflow-hidden bg-gradient-to-b from-primary via-primary to-warning/80 pb-6">
-      <div className="relative mx-auto flex h-64 items-end justify-center">
-        <img
-          src={heroRider}
-          alt="Hoomi Rider"
-          className="h-full w-auto object-contain"
-        />
-      </div>
+    <section className="relative mx-4 mt-4 overflow-hidden rounded-3xl">
+      <img
+        src={heroCover}
+        alt="Hoomi Rider"
+        className="h-64 w-full object-cover"
+      />
     </section>
   );
 }
