@@ -3,7 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { MobileLayout } from "@/components/layout/MobileLayout";
 import { useToast } from "@/hooks/use-toast";
-import { Mail, Lock, User, ArrowRight, X } from "lucide-react";
+import { Mail, Lock, User, ArrowRight } from "lucide-react";
 import { z } from "zod";
 
 const emailSchema = z.string().email("Please enter a valid email");
@@ -101,15 +101,7 @@ const Auth = () => {
   };
 
   return (
-    <MobileLayout className="relative flex flex-col bg-gradient-to-b from-primary to-primary-dark">
-      {/* Close Button */}
-      <button
-        onClick={() => navigate("/")}
-        className="absolute left-4 top-4 z-10 flex h-10 w-10 items-center justify-center rounded-full bg-primary-foreground/20 text-primary-foreground transition-colors hover:bg-primary-foreground/30"
-      >
-        <X className="h-5 w-5" />
-      </button>
-
+    <MobileLayout className="flex flex-col bg-gradient-to-b from-primary to-primary-dark">
       {/* Header */}
       <div className="flex flex-col items-center pt-12 pb-8">
         <div className="flex h-20 w-20 items-center justify-center rounded-full bg-primary-foreground">
