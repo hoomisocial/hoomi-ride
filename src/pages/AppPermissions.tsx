@@ -92,7 +92,7 @@ const AppPermissions = () => {
     sessionStorage.setItem("app_authorized", "true");
 
     // Navigate to main app
-    navigate("/");
+    navigate("/home");
   };
 
   const requiredCount = permissions.filter((p) => p.required).length;
