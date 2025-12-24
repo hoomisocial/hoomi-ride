@@ -23,28 +23,22 @@ const HoomiAgent = () => {
   const [inputText, setInputText] = useState("");
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
-  // Check auth status
+  // Check auth status (optional - no redirect if not authenticated)
   useEffect(() => {
     const checkAuth = async () => {
       const { data: { session } } = await supabase.auth.getSession();
-      if (!session) {
-        navigate("/auth");
-        return;
+      if (session) {
+        setUser(session.user);
       }
-      setUser(session.user);
     };
     checkAuth();
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
-      if (!session) {
-        navigate("/auth");
-      } else {
-        setUser(session.user);
-      }
+      setUser(session?.user ?? null);
     });
 
     return () => subscription.unsubscribe();
-  }, [navigate]);
+  }, []);
 
   const conversation = useConversation({
     onConnect: () => {
@@ -141,7 +135,7 @@ const HoomiAgent = () => {
   const handleLogout = async () => {
     await conversation.endSession();
     await supabase.auth.signOut();
-    navigate("/auth");
+    navigate("/home");
   };
 
   const sendMessage = useCallback(() => {
