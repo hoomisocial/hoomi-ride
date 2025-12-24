@@ -22,7 +22,7 @@ const Activity = () => {
         </p>
         
         <button
-          onClick={() => navigate("/")}
+          onClick={() => navigate("/home")}
           className="btn-shadow mt-6 rounded-full bg-primary px-8 py-3 font-semibold text-primary-foreground"
         >
           Book Now
