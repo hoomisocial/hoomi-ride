@@ -13,7 +13,7 @@ import HoomiAgent from "./pages/HoomiAgent";
 import History from "./pages/History";
 import Chat from "./pages/Chat";
 import Activity from "./pages/Activity";
-import Auth from "./pages/Auth";
+import AppPermissions from "./pages/AppPermissions";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -26,7 +26,7 @@ const App = () => (
       <BrowserRouter>
         <Routes>
           <Route path="/" element={<Index />} />
-          <Route path="/auth" element={<Auth />} />
+          <Route path="/permissions" element={<AppPermissions />} />
           <Route path="/transport" element={<Transport />} />
           <Route path="/delivery" element={<Delivery />} />
           <Route path="/delivery/details" element={<DeliveryDetails />} />
