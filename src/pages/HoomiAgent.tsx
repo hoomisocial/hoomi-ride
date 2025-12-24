@@ -165,7 +165,7 @@ const HoomiAgent = () => {
       {/* Header */}
       <header className="sticky top-0 z-50 flex items-center justify-between bg-primary px-4 py-3">
         <button
-          onClick={() => navigate("/")}
+          onClick={() => navigate("/home")}
           className="text-primary-foreground/80 hover:text-primary-foreground"
         >
           ← Back
@@ -174,12 +174,7 @@ const HoomiAgent = () => {
           <Bot className="h-5 w-5 text-primary-foreground" />
           <h1 className="text-lg font-semibold text-primary-foreground">Hoomi Bot</h1>
         </div>
-        <button
-          onClick={handleLogout}
-          className="text-primary-foreground/80 hover:text-primary-foreground"
-        >
-          <LogOut className="h-5 w-5" />
-        </button>
+        <div className="w-5" /> {/* Spacer for alignment */}
       </header>
 
       {/* Connection Status */}
