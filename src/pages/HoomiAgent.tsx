@@ -1,17 +1,31 @@
 import { useConversation } from "@elevenlabs/react";
 import { useState, useCallback, useRef, useEffect } from "react";
-import { Send, Bot, LogOut } from "lucide-react";
+import { Send, Bot, Plus, Image, Camera, File, X } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { MobileLayout } from "@/components/layout/MobileLayout";
 import { useToast } from "@/hooks/use-toast";
 import { supabase } from "@/integrations/supabase/client";
 import { User } from "@supabase/supabase-js";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
+
+interface Attachment {
+  id: string;
+  name: string;
+  type: "image" | "file";
+  url: string;
+  file: File;
+}
 
 interface Message {
   id: string;
   role: "user" | "agent";
   text: string;
   timestamp: Date;
+  attachments?: Attachment[];
 }
 
 const HoomiAgent = () => {
@@ -21,7 +35,12 @@ const HoomiAgent = () => {
   const [isConnecting, setIsConnecting] = useState(false);
   const [messages, setMessages] = useState<Message[]>([]);
   const [inputText, setInputText] = useState("");
+  const [attachments, setAttachments] = useState<Attachment[]>([]);
+  const [isUploadOpen, setIsUploadOpen] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const imageInputRef = useRef<HTMLInputElement>(null);
+  const cameraInputRef = useRef<HTMLInputElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Check auth status (optional - no redirect if not authenticated)
   useEffect(() => {
@@ -139,17 +158,58 @@ const HoomiAgent = () => {
   };
 
   const sendMessage = useCallback(() => {
-    if (!inputText.trim() || conversation.status !== "connected") return;
+    if ((!inputText.trim() && attachments.length === 0)) return;
 
     const text = inputText.trim();
+    const currentAttachments = [...attachments];
+    
     setMessages((prev) => [
       ...prev,
-      { id: Date.now().toString(), role: "user", text, timestamp: new Date() },
+      { 
+        id: Date.now().toString(), 
+        role: "user", 
+        text: text || (currentAttachments.length > 0 ? `Sent ${currentAttachments.length} file(s)` : ""),
+        timestamp: new Date(),
+        attachments: currentAttachments.length > 0 ? currentAttachments : undefined,
+      },
     ]);
 
-    (conversation as any).sendUserMessage?.(text);
+    if (conversation.status === "connected" && text) {
+      (conversation as any).sendUserMessage?.(text);
+    }
+    
     setInputText("");
-  }, [conversation, inputText]);
+    setAttachments([]);
+  }, [conversation, inputText, attachments]);
+
+  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>, type: "image" | "file") => {
+    const files = e.target.files;
+    if (!files) return;
+
+    const newAttachments: Attachment[] = Array.from(files).map((file) => ({
+      id: Date.now().toString() + Math.random().toString(36).substr(2, 9),
+      name: file.name,
+      type: type,
+      url: URL.createObjectURL(file),
+      file: file,
+    }));
+
+    setAttachments((prev) => [...prev, ...newAttachments]);
+    setIsUploadOpen(false);
+    
+    // Reset input
+    e.target.value = "";
+  };
+
+  const removeAttachment = (id: string) => {
+    setAttachments((prev) => {
+      const attachment = prev.find((a) => a.id === id);
+      if (attachment) {
+        URL.revokeObjectURL(attachment.url);
+      }
+      return prev.filter((a) => a.id !== id);
+    });
+  };
 
   const handleKeyPress = (e: React.KeyboardEvent) => {
     if (e.key === "Enter" && !e.shiftKey) {
@@ -232,6 +292,26 @@ const HoomiAgent = () => {
                     <span className="text-xs font-medium opacity-70">Hoomi</span>
                   </div>
                 )}
+                {msg.attachments && msg.attachments.length > 0 && (
+                  <div className="mb-2 flex flex-wrap gap-2">
+                    {msg.attachments.map((attachment) => (
+                      <div key={attachment.id} className="relative">
+                        {attachment.type === "image" ? (
+                          <img
+                            src={attachment.url}
+                            alt={attachment.name}
+                            className="h-20 w-20 rounded-lg object-cover"
+                          />
+                        ) : (
+                          <div className="flex items-center gap-2 rounded-lg bg-background/20 px-3 py-2">
+                            <File className="h-4 w-4" />
+                            <span className="max-w-[100px] truncate text-xs">{attachment.name}</span>
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
                 <p className="text-sm whitespace-pre-wrap">{msg.text}</p>
                 <p
                   className={`mt-1 text-[10px] ${
@@ -247,26 +327,125 @@ const HoomiAgent = () => {
         <div ref={messagesEndRef} />
       </div>
 
+      {/* Attachment Preview */}
+      {attachments.length > 0 && (
+        <div className="border-t border-border bg-muted/50 px-4 py-2">
+          <div className="flex flex-wrap gap-2">
+            {attachments.map((attachment) => (
+              <div key={attachment.id} className="relative">
+                {attachment.type === "image" ? (
+                  <div className="relative">
+                    <img
+                      src={attachment.url}
+                      alt={attachment.name}
+                      className="h-16 w-16 rounded-lg object-cover"
+                    />
+                    <button
+                      onClick={() => removeAttachment(attachment.id)}
+                      className="absolute -right-1 -top-1 flex h-5 w-5 items-center justify-center rounded-full bg-destructive text-destructive-foreground"
+                    >
+                      <X className="h-3 w-3" />
+                    </button>
+                  </div>
+                ) : (
+                  <div className="relative flex items-center gap-2 rounded-lg bg-muted px-3 py-2">
+                    <File className="h-4 w-4" />
+                    <span className="max-w-[80px] truncate text-xs">{attachment.name}</span>
+                    <button
+                      onClick={() => removeAttachment(attachment.id)}
+                      className="flex h-4 w-4 items-center justify-center rounded-full bg-destructive text-destructive-foreground"
+                    >
+                      <X className="h-2 w-2" />
+                    </button>
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
       {/* Input */}
       <div className="border-t border-border bg-card p-4 safe-bottom">
-        <div className="flex items-center gap-3">
+        {/* Hidden file inputs */}
+        <input
+          ref={imageInputRef}
+          type="file"
+          accept="image/*"
+          multiple
+          className="hidden"
+          onChange={(e) => handleFileSelect(e, "image")}
+        />
+        <input
+          ref={cameraInputRef}
+          type="file"
+          accept="image/*"
+          capture="environment"
+          className="hidden"
+          onChange={(e) => handleFileSelect(e, "image")}
+        />
+        <input
+          ref={fileInputRef}
+          type="file"
+          multiple
+          className="hidden"
+          onChange={(e) => handleFileSelect(e, "file")}
+        />
+
+        <div className="flex items-center gap-2">
+          <Popover open={isUploadOpen} onOpenChange={setIsUploadOpen}>
+            <PopoverTrigger asChild>
+              <button
+                className="flex h-10 w-10 items-center justify-center rounded-full bg-muted text-muted-foreground hover:bg-muted/80"
+              >
+                <Plus className="h-5 w-5" />
+              </button>
+            </PopoverTrigger>
+            <PopoverContent className="w-48 p-2" side="top" align="start">
+              <div className="flex flex-col gap-1">
+                <button
+                  onClick={() => {
+                    imageInputRef.current?.click();
+                  }}
+                  className="flex items-center gap-3 rounded-lg px-3 py-2 text-sm hover:bg-muted"
+                >
+                  <Image className="h-4 w-4 text-primary" />
+                  <span>Upload Image</span>
+                </button>
+                <button
+                  onClick={() => {
+                    cameraInputRef.current?.click();
+                  }}
+                  className="flex items-center gap-3 rounded-lg px-3 py-2 text-sm hover:bg-muted"
+                >
+                  <Camera className="h-4 w-4 text-primary" />
+                  <span>Take Photo</span>
+                </button>
+                <button
+                  onClick={() => {
+                    fileInputRef.current?.click();
+                  }}
+                  className="flex items-center gap-3 rounded-lg px-3 py-2 text-sm hover:bg-muted"
+                >
+                  <File className="h-4 w-4 text-primary" />
+                  <span>Upload File</span>
+                </button>
+              </div>
+            </PopoverContent>
+          </Popover>
+
           <input
             type="text"
             value={inputText}
             onChange={(e) => setInputText(e.target.value)}
             onKeyPress={handleKeyPress}
-            placeholder={
-              conversation.status === "connected"
-                ? "Type a message..."
-                : "Connecting..."
-            }
-            disabled={conversation.status !== "connected"}
-            className="flex-1 rounded-full border border-border bg-background px-4 py-3 text-sm text-foreground outline-none focus:ring-2 focus:ring-primary/20 disabled:opacity-50"
+            placeholder="Type a message..."
+            className="flex-1 rounded-full border border-border bg-background px-4 py-2.5 text-sm text-foreground outline-none focus:ring-2 focus:ring-primary/20"
           />
           <button
             onClick={sendMessage}
-            disabled={conversation.status !== "connected" || !inputText.trim()}
-            className="flex h-12 w-12 items-center justify-center rounded-full bg-primary text-primary-foreground disabled:opacity-50"
+            disabled={!inputText.trim() && attachments.length === 0}
+            className="flex h-10 w-10 items-center justify-center rounded-full bg-primary text-primary-foreground disabled:opacity-50"
           >
             <Send className="h-5 w-5" />
           </button>
