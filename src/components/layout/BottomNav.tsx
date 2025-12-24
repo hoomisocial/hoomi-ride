@@ -3,7 +3,7 @@ import { useLocation, useNavigate } from "react-router-dom";
 import hoomiLogo from "@/assets/hoomi-logo.png";
 
 const navItems = [
-  { icon: Home, label: "Home", path: "/" },
+  { icon: Home, label: "Home", path: "/home" },
   { icon: MessageCircle, label: "Chat", path: "/chat" },
   { icon: Bike, label: "Activity", path: "/activity" },
   { icon: History, label: "History", path: "/history" },
