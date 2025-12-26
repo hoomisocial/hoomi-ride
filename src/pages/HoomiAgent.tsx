@@ -71,23 +71,19 @@ const HoomiAgent = () => {
       console.log("Disconnected from Hoomi Agent");
     },
     onMessage: (message: any) => {
-      console.log("Message:", message);
-      if (message.type === "user_transcript") {
-        const text = message.user_transcription_event?.user_transcript;
-        if (text) {
-          setMessages((prev) => [
-            ...prev,
-            { id: Date.now().toString(), role: "user", text, timestamp: new Date() },
-          ]);
-        }
-      } else if (message.type === "agent_response") {
-        const text = message.agent_response_event?.agent_response;
-        if (text) {
-          setMessages((prev) => [
-            ...prev,
-            { id: Date.now().toString(), role: "agent", text, timestamp: new Date() },
-          ]);
-        }
+      console.log("Full message received:", JSON.stringify(message, null, 2));
+      
+      // ElevenLabs sends messages in format: { source: "ai"|"user", role: "agent"|"user", message: "text" }
+      if (message.message && message.role) {
+        const text = message.message;
+        const role = message.role === "agent" ? "agent" : "user";
+        
+        console.log(`${role} message:`, text);
+        
+        setMessages((prev) => [
+          ...prev,
+          { id: Date.now().toString(), role, text, timestamp: new Date() },
+        ]);
       }
     },
     onError: (error: any) => {
