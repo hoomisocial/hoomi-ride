@@ -543,7 +543,7 @@ const HoomiAgent = () => {
       )}
 
       {/* Input - Sticky Bottom */}
-      <div className="fixed bottom-0 left-0 right-0 z-50 max-w-md mx-auto border-t border-border bg-card p-4 safe-bottom">
+      <div className="fixed bottom-2 left-0 right-0 z-50 max-w-md mx-auto border-t border-border bg-card p-4 mb-2 safe-bottom">
         {/* Hidden file inputs */}
         <input
           ref={imageInputRef}
