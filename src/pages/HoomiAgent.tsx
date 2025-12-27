@@ -143,20 +143,43 @@ const HoomiAgent = () => {
       recognition.interimResults = true;
       recognition.lang = "id-ID"; // Indonesian, will also work with English
 
+      let finalTranscript = "";
+
       recognition.onstart = () => {
         setIsListening(true);
+        finalTranscript = "";
       };
 
       recognition.onend = () => {
         setIsListening(false);
+        // Auto-send if there's a final transcript
+        if (finalTranscript.trim()) {
+          // Small delay to ensure state is updated
+          setTimeout(() => {
+            const sendBtn = document.querySelector(
+              "[data-send-btn]"
+            ) as HTMLButtonElement;
+            if (sendBtn && !sendBtn.disabled) {
+              sendBtn.click();
+            }
+          }, 100);
+        }
       };
 
       recognition.onresult = (event: SpeechRecognitionEvent) => {
-        const transcript = Array.from(event.results)
-          .map((result) => result[0].transcript)
-          .join("");
+        let interimTranscript = "";
 
-        setInputText(transcript);
+        for (let i = event.resultIndex; i < event.results.length; i++) {
+          const result = event.results[i];
+          if (result.isFinal) {
+            finalTranscript += result[0].transcript;
+          } else {
+            interimTranscript += result[0].transcript;
+          }
+        }
+
+        // Show interim results while speaking, final when done
+        setInputText(finalTranscript + interimTranscript);
       };
 
       recognition.onerror = (event) => {
@@ -632,6 +655,7 @@ const HoomiAgent = () => {
               disabled={isLoading}
             />
             <button
+              data-send-btn
               onClick={sendMessage}
               disabled={
                 (!inputText.trim() && attachments.length === 0) || isLoading
