@@ -291,12 +291,19 @@ const HoomiAgent = () => {
       }
 
       let fullText = "";
+      let isFirstChunk = true;
       while (true) {
         const { done, value } = await reader.read();
         if (done) break;
 
         const chunk = decoder.decode(value, { stream: true });
         fullText += chunk;
+
+        // Hide loading indicator on first chunk
+        if (isFirstChunk) {
+          setIsLoading(false);
+          isFirstChunk = false;
+        }
 
         // Update the agent message with accumulated text
         setMessages((prev) =>
@@ -367,9 +374,9 @@ const HoomiAgent = () => {
     user?.user_metadata?.name || user?.email?.split("@")[0] || "User";
 
   return (
-    <MobileLayout className="flex flex-col bg-background">
-      {/* Header */}
-      <header className="sticky top-0 z-50 flex items-center justify-between bg-primary px-4 py-3">
+    <MobileLayout className="flex flex-col h-full bg-background overflow-hidden">
+      {/* Header - Fixed at top */}
+      <header className="flex-shrink-0 flex items-center justify-between bg-primary px-4 py-3">
         <button
           onClick={() => navigate("/home")}
           className="text-primary-foreground/80 hover:text-primary-foreground"
@@ -385,15 +392,15 @@ const HoomiAgent = () => {
         <div className="w-12" /> {/* Spacer for alignment */}
       </header>
 
-      {/* Connection Status */}
-      <div className="flex items-center justify-center gap-2 py-2 bg-success/10">
+      {/* Connection Status - Fixed below header */}
+      <div className="flex-shrink-0 flex items-center justify-center gap-2 py-2 bg-success/10">
         <div className="h-2 w-2 rounded-full animate-pulse bg-success" />
         <span className="text-xs font-medium text-success">
           Hi {userName}! Chat with Hoomi
         </span>
       </div>
 
-      {/* Messages */}
+      {/* Messages - Scrollable area */}
       <div className="flex-1 overflow-y-auto p-4 pb-32">
         {messages.length === 0 && (
           <div className="flex flex-col items-center justify-center py-12 text-center">
@@ -478,18 +485,6 @@ const HoomiAgent = () => {
               </div>
             </div>
           ))}
-
-          {/* Loading indicator */}
-          {isLoading && (
-            <div className="flex justify-start">
-              <div className="max-w-[80%] rounded-2xl px-4 py-3 bg-muted text-foreground">
-                <div className="flex items-center gap-2">
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                  <span className="text-sm">Hoomi is thinking...</span>
-                </div>
-              </div>
-            </div>
-          )}
         </div>
         <div ref={messagesEndRef} />
       </div>
@@ -543,112 +538,116 @@ const HoomiAgent = () => {
       )}
 
       {/* Input - Sticky Bottom */}
-      <div className="fixed bottom-2 left-0 right-0 z-50 max-w-md mx-auto border-t border-border bg-card p-4 mb-2 safe-bottom">
-        {/* Hidden file inputs */}
-        <input
-          ref={imageInputRef}
-          type="file"
-          accept="image/*"
-          multiple
-          className="hidden"
-          onChange={(e) => handleFileSelect(e, "image")}
-        />
-        <input
-          ref={cameraInputRef}
-          type="file"
-          accept="image/*"
-          capture="environment"
-          className="hidden"
-          onChange={(e) => handleFileSelect(e, "image")}
-        />
-        <input
-          ref={fileInputRef}
-          type="file"
-          multiple
-          className="hidden"
-          onChange={(e) => handleFileSelect(e, "file")}
-        />
-
-        <div className="flex items-center gap-2">
-          <Popover open={isUploadOpen} onOpenChange={setIsUploadOpen}>
-            <PopoverTrigger asChild>
-              <button className="flex h-10 w-10 items-center justify-center rounded-full bg-muted text-muted-foreground hover:bg-muted/80">
-                <Plus className="h-5 w-5" />
-              </button>
-            </PopoverTrigger>
-            <PopoverContent className="w-48 p-2" side="top" align="start">
-              <div className="flex flex-col gap-1">
-                <button
-                  onClick={() => {
-                    imageInputRef.current?.click();
-                  }}
-                  className="flex items-center gap-3 rounded-lg px-3 py-2 text-sm hover:bg-muted"
-                >
-                  <Image className="h-4 w-4 text-primary" />
-                  <span>Upload Image</span>
-                </button>
-                <button
-                  onClick={() => {
-                    cameraInputRef.current?.click();
-                  }}
-                  className="flex items-center gap-3 rounded-lg px-3 py-2 text-sm hover:bg-muted"
-                >
-                  <Camera className="h-4 w-4 text-primary" />
-                  <span>Take Photo</span>
-                </button>
-                <button
-                  onClick={() => {
-                    fileInputRef.current?.click();
-                  }}
-                  className="flex items-center gap-3 rounded-lg px-3 py-2 text-sm hover:bg-muted"
-                >
-                  <File className="h-4 w-4 text-primary" />
-                  <span>Upload File</span>
-                </button>
-              </div>
-            </PopoverContent>
-          </Popover>
-
-          {/* Mic button for speech-to-text */}
-          <button
-            onClick={toggleListening}
-            className={`flex h-10 w-10 items-center justify-center rounded-full transition-all ${
-              isListening
-                ? "bg-destructive text-white animate-pulse"
-                : "bg-muted text-muted-foreground hover:bg-muted/80"
-            }`}
-            title={isListening ? "Stop listening" : "Start voice input"}
-          >
-            {isListening ? (
-              <MicOff className="h-5 w-5" />
-            ) : (
-              <Mic className="h-5 w-5" />
-            )}
-          </button>
-
+      <div className="fixed bottom-0 left-0 right-0 z-50 max-w-md mx-auto bg-card shadow-[0_-2px_10px_rgba(0,0,0,0.1)]">
+        <div className="px-4 py-3">
+          {/* Hidden file inputs */}
           <input
-            type="text"
-            value={inputText}
-            onChange={(e) => setInputText(e.target.value)}
-            onKeyPress={handleKeyPress}
-            placeholder="Type a message..."
-            className="flex-1 rounded-full border border-border bg-background px-4 py-2.5 text-sm text-foreground outline-none focus:ring-2 focus:ring-primary/20"
-            disabled={isLoading}
+            ref={imageInputRef}
+            type="file"
+            accept="image/*"
+            multiple
+            className="hidden"
+            onChange={(e) => handleFileSelect(e, "image")}
           />
-          <button
-            onClick={sendMessage}
-            disabled={
-              (!inputText.trim() && attachments.length === 0) || isLoading
-            }
-            className="flex h-10 w-10 items-center justify-center rounded-full bg-primary text-primary-foreground disabled:opacity-50"
-          >
-            {isLoading ? (
-              <Loader2 className="h-5 w-5 animate-spin" />
-            ) : (
-              <Send className="h-5 w-5" />
-            )}
-          </button>
+          <input
+            ref={cameraInputRef}
+            type="file"
+            accept="image/*"
+            capture="environment"
+            className="hidden"
+            onChange={(e) => handleFileSelect(e, "image")}
+          />
+          <input
+            ref={fileInputRef}
+            type="file"
+            multiple
+            className="hidden"
+            onChange={(e) => handleFileSelect(e, "file")}
+          />
+
+          <div className="flex items-center gap-2">
+            <Popover open={isUploadOpen} onOpenChange={setIsUploadOpen}>
+              <PopoverTrigger asChild>
+                <button className="flex h-10 w-10 items-center justify-center rounded-full bg-muted text-muted-foreground hover:bg-muted/80">
+                  <Plus className="h-5 w-5" />
+                </button>
+              </PopoverTrigger>
+              <PopoverContent className="w-48 p-2" side="top" align="start">
+                <div className="flex flex-col gap-1">
+                  <button
+                    onClick={() => {
+                      imageInputRef.current?.click();
+                    }}
+                    className="flex items-center gap-3 rounded-lg px-3 py-2 text-sm hover:bg-muted"
+                  >
+                    <Image className="h-4 w-4 text-primary" />
+                    <span>Upload Image</span>
+                  </button>
+                  <button
+                    onClick={() => {
+                      cameraInputRef.current?.click();
+                    }}
+                    className="flex items-center gap-3 rounded-lg px-3 py-2 text-sm hover:bg-muted"
+                  >
+                    <Camera className="h-4 w-4 text-primary" />
+                    <span>Take Photo</span>
+                  </button>
+                  <button
+                    onClick={() => {
+                      fileInputRef.current?.click();
+                    }}
+                    className="flex items-center gap-3 rounded-lg px-3 py-2 text-sm hover:bg-muted"
+                  >
+                    <File className="h-4 w-4 text-primary" />
+                    <span>Upload File</span>
+                  </button>
+                </div>
+              </PopoverContent>
+            </Popover>
+
+            {/* Mic button for speech-to-text */}
+            <button
+              onClick={toggleListening}
+              className={`flex h-10 w-10 items-center justify-center rounded-full transition-all ${
+                isListening
+                  ? "bg-destructive text-white animate-pulse"
+                  : "bg-muted text-muted-foreground hover:bg-muted/80"
+              }`}
+              title={isListening ? "Stop listening" : "Start voice input"}
+            >
+              {isListening ? (
+                <MicOff className="h-5 w-5" />
+              ) : (
+                <Mic className="h-5 w-5" />
+              )}
+            </button>
+
+            <input
+              type="text"
+              value={inputText}
+              onChange={(e) => setInputText(e.target.value)}
+              onKeyPress={handleKeyPress}
+              placeholder="Type a message..."
+              className="flex-1 rounded-full border border-border bg-background px-4 py-2.5 text-sm text-foreground outline-none focus:ring-2 focus:ring-primary/20"
+              disabled={isLoading}
+            />
+            <button
+              onClick={sendMessage}
+              disabled={
+                (!inputText.trim() && attachments.length === 0) || isLoading
+              }
+              className="flex h-10 w-10 items-center justify-center rounded-full bg-primary text-primary-foreground disabled:opacity-50"
+            >
+              {isLoading ? (
+                <Loader2 className="h-5 w-5 animate-spin" />
+              ) : (
+                <Send className="h-5 w-5" />
+              )}
+            </button>
+          </div>
         </div>
+        {/* Safe area spacer for devices with notch */}
+        <div className="safe-bottom" />
       </div>
     </MobileLayout>
   );

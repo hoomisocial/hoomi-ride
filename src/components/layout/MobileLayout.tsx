@@ -7,8 +7,6 @@ interface MobileLayoutProps {
 
 export function MobileLayout({ children, className = "" }: MobileLayoutProps) {
   return (
-    <div className={`mobile-container ${className}`}>
-      {children}
-    </div>
+    <div className={`mobile-container h-screen ${className}`}>{children}</div>
   );
 }
