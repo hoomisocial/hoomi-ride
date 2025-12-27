@@ -28,6 +28,7 @@ import {
 } from "@/components/ui/popover";
 import ReactMarkdown from "react-markdown";
 import rehypeRaw from "rehype-raw";
+import remarkGfm from "remark-gfm";
 
 // Groq API endpoint - using streaming
 const GROQ_API_URL = "http://localhost:8000/chat/stream";
@@ -486,7 +487,10 @@ const HoomiAgent = () => {
                 )}
                 {msg.role === "agent" ? (
                   <div className="text-sm prose prose-sm dark:prose-invert max-w-none">
-                    <ReactMarkdown rehypePlugins={[rehypeRaw]}>
+                    <ReactMarkdown
+                      remarkPlugins={[remarkGfm]}
+                      rehypePlugins={[rehypeRaw]}
+                    >
                       {msg.text}
                     </ReactMarkdown>
                   </div>
