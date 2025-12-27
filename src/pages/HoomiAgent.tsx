@@ -1,4 +1,6 @@
-import { useConversation } from "@elevenlabs/react";
+// === ELEVENLABS IMPORT DISABLED - Using Groq + Web Speech API instead ===
+// import { useConversation } from "@elevenlabs/react";
+
 import { useState, useCallback, useRef, useEffect } from "react";
 import {
   Send,
@@ -10,18 +12,25 @@ import {
   X,
   Mic,
   MicOff,
+  Loader2,
 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { MobileLayout } from "@/components/layout/MobileLayout";
 import { useToast } from "@/hooks/use-toast";
 import { supabase } from "@/integrations/supabase/client";
 import { User } from "@supabase/supabase-js";
-import { VoiceVisualizer } from "@/components/ui/VoiceVisualizer";
+// === DISABLED - No longer using ElevenLabs voice visualizer ===
+// import { VoiceVisualizer } from "@/components/ui/VoiceVisualizer";
 import {
   Popover,
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
+import ReactMarkdown from "react-markdown";
+import rehypeRaw from "rehype-raw";
+
+// Groq API endpoint - using streaming
+const GROQ_API_URL = "http://localhost:8000/chat/stream";
 
 interface Attachment {
   id: string;
@@ -39,21 +48,69 @@ interface Message {
   attachments?: Attachment[];
 }
 
+// Web Speech API type declarations
+interface SpeechRecognitionEvent extends Event {
+  results: SpeechRecognitionResultList;
+  resultIndex: number;
+}
+
+interface SpeechRecognitionResultList {
+  length: number;
+  item(index: number): SpeechRecognitionResult;
+  [index: number]: SpeechRecognitionResult;
+}
+
+interface SpeechRecognitionResult {
+  isFinal: boolean;
+  length: number;
+  item(index: number): SpeechRecognitionAlternative;
+  [index: number]: SpeechRecognitionAlternative;
+}
+
+interface SpeechRecognitionAlternative {
+  transcript: string;
+  confidence: number;
+}
+
+declare global {
+  interface Window {
+    SpeechRecognition: new () => SpeechRecognition;
+    webkitSpeechRecognition: new () => SpeechRecognition;
+  }
+}
+
+interface SpeechRecognition extends EventTarget {
+  continuous: boolean;
+  interimResults: boolean;
+  lang: string;
+  start(): void;
+  stop(): void;
+  abort(): void;
+  onstart: ((this: SpeechRecognition, ev: Event) => void) | null;
+  onend: ((this: SpeechRecognition, ev: Event) => void) | null;
+  onresult:
+    | ((this: SpeechRecognition, ev: SpeechRecognitionEvent) => void)
+    | null;
+  onerror:
+    | ((this: SpeechRecognition, ev: Event & { error: string }) => void)
+    | null;
+}
+
 const HoomiAgent = () => {
   const navigate = useNavigate();
   const { toast } = useToast();
   const [user, setUser] = useState<User | null>(null);
-  const [isConnecting, setIsConnecting] = useState(false);
   const [messages, setMessages] = useState<Message[]>([]);
   const [inputText, setInputText] = useState("");
   const [attachments, setAttachments] = useState<Attachment[]>([]);
   const [isUploadOpen, setIsUploadOpen] = useState(false);
-  const [isMuted, setIsMuted] = useState(false);
+  const [isListening, setIsListening] = useState(false);
+  const [isLoading, setIsLoading] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const imageInputRef = useRef<HTMLInputElement>(null);
   const cameraInputRef = useRef<HTMLInputElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const isMutedRef = useRef(false);
+  const recognitionRef = useRef<SpeechRecognition | null>(null);
 
   // Check auth status (optional - no redirect if not authenticated)
   useEffect(() => {
@@ -76,6 +133,54 @@ const HoomiAgent = () => {
     return () => subscription.unsubscribe();
   }, []);
 
+  // Initialize Web Speech API
+  useEffect(() => {
+    const SpeechRecognition =
+      window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (SpeechRecognition) {
+      const recognition = new SpeechRecognition();
+      recognition.continuous = false;
+      recognition.interimResults = true;
+      recognition.lang = "id-ID"; // Indonesian, will also work with English
+
+      recognition.onstart = () => {
+        setIsListening(true);
+      };
+
+      recognition.onend = () => {
+        setIsListening(false);
+      };
+
+      recognition.onresult = (event: SpeechRecognitionEvent) => {
+        const transcript = Array.from(event.results)
+          .map((result) => result[0].transcript)
+          .join("");
+
+        setInputText(transcript);
+      };
+
+      recognition.onerror = (event) => {
+        console.error("Speech recognition error:", event.error);
+        setIsListening(false);
+        toast({
+          variant: "destructive",
+          title: "Speech Error",
+          description: `Could not recognize speech: ${event.error}`,
+        });
+      };
+
+      recognitionRef.current = recognition;
+    }
+
+    return () => {
+      if (recognitionRef.current) {
+        recognitionRef.current.abort();
+      }
+    };
+  }, [toast]);
+
+  // === ELEVENLABS CONVERSATION HOOK DISABLED ===
+  /*
   const conversation = useConversation({
     onConnect: () => {
       console.log("Connected to Hoomi Agent");
@@ -88,133 +193,136 @@ const HoomiAgent = () => {
       console.log("Disconnected from Hoomi Agent");
     },
     onMessage: (message: any) => {
-      console.log("Full message received:", JSON.stringify(message, null, 2));
-
-      // ElevenLabs sends messages in format: { source: "ai"|"user", role: "agent"|"user", message: "text" }
-      if (message.message && message.role) {
-        const text = message.message;
-        const role = message.role === "agent" ? "agent" : "user";
-
-        // Skip agent messages when muted
-        if (role === "agent" && isMutedRef.current) {
-          console.log("Agent message ignored (muted):", text);
-          return;
-        }
-
-        console.log(`${role} message:`, text);
-
-        setMessages((prev) => [
-          ...prev,
-          { id: Date.now().toString(), role, text, timestamp: new Date() },
-        ]);
-      }
+      // ElevenLabs message handling...
     },
     onError: (error: any) => {
       console.error("Error:", error);
-      toast({
-        variant: "destructive",
-        title: "Connection Error",
-        description: "Failed to connect to Hoomi Bot. Please try again.",
-      });
-      setIsConnecting(false);
     },
   });
+  */
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
 
-  // Auto-connect when user is authenticated
-  useEffect(() => {
-    if (user && conversation.status === "disconnected" && !isConnecting) {
-      connectToAgent();
-    }
-  }, [user]);
-
-  // Reset mute state when disconnected
-  useEffect(() => {
-    if (conversation.status === "disconnected") {
-      setIsMuted(false);
-      isMutedRef.current = false;
-    }
-  }, [conversation.status]);
-
-  const connectToAgent = async () => {
-    setIsConnecting(true);
-    try {
-      // Request mic permission
-      await navigator.mediaDevices.getUserMedia({ audio: true });
-
-      // Get signed URL from our edge function
-      const { data, error } = await supabase.functions.invoke(
-        "elevenlabs-token"
-      );
-
-      if (error) {
-        console.error("Token error:", error);
-        throw new Error("Failed to get connection token");
-      }
-
-      if (!data?.signed_url) {
-        console.error("No signed URL received:", data);
-        throw new Error("No connection URL received");
-      }
-
-      console.log("Got signed URL, connecting...");
-
-      // Connect using the signed URL
-      await (conversation as any).startSession({
-        signedUrl: data.signed_url,
-      });
-
-      setMessages([]);
-    } catch (error: any) {
-      console.error("Failed to connect:", error);
+  // Toggle speech recognition
+  const toggleListening = useCallback(() => {
+    if (!recognitionRef.current) {
       toast({
         variant: "destructive",
-        title: "Connection Failed",
-        description: error.message || "Could not connect to Hoomi Bot.",
+        title: "Not Supported",
+        description:
+          "Speech recognition is not supported in this browser. Please use Chrome.",
       });
-    } finally {
-      setIsConnecting(false);
+      return;
     }
-  };
 
-  const handleLogout = async () => {
-    await conversation.endSession();
-    await supabase.auth.signOut();
-    navigate("/home");
-  };
+    if (isListening) {
+      recognitionRef.current.stop();
+    } else {
+      recognitionRef.current.start();
+    }
+  }, [isListening, toast]);
 
-  const sendMessage = useCallback(() => {
+  // Send message to Groq API with streaming
+  const sendMessage = useCallback(async () => {
     if (!inputText.trim() && attachments.length === 0) return;
 
     const text = inputText.trim();
     const currentAttachments = [...attachments];
 
+    // Add user message to chat
+    const userMessage: Message = {
+      id: Date.now().toString(),
+      role: "user",
+      text:
+        text ||
+        (currentAttachments.length > 0
+          ? `Sent ${currentAttachments.length} file(s)`
+          : ""),
+      timestamp: new Date(),
+      attachments:
+        currentAttachments.length > 0 ? currentAttachments : undefined,
+    };
+
+    setMessages((prev) => [...prev, userMessage]);
+    setInputText("");
+    setAttachments([]);
+    setIsLoading(true);
+
+    // Create agent message placeholder for streaming
+    const agentMessageId = (Date.now() + 1).toString();
     setMessages((prev) => [
       ...prev,
       {
-        id: Date.now().toString(),
-        role: "user",
-        text:
-          text ||
-          (currentAttachments.length > 0
-            ? `Sent ${currentAttachments.length} file(s)`
-            : ""),
+        id: agentMessageId,
+        role: "agent",
+        text: "",
         timestamp: new Date(),
-        attachments:
-          currentAttachments.length > 0 ? currentAttachments : undefined,
       },
     ]);
 
-    if (conversation.status === "connected" && text) {
-      (conversation as any).sendUserMessage?.(text);
-    }
+    try {
+      // Build message history for context
+      const messageHistory = [...messages, userMessage].map((msg) => ({
+        role: msg.role === "user" ? "user" : "assistant",
+        content: msg.text,
+      }));
 
-    setInputText("");
-    setAttachments([]);
-  }, [conversation, inputText, attachments]);
+      // Call Groq API with streaming
+      const response = await fetch(GROQ_API_URL, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ messages: messageHistory }),
+      });
+
+      if (!response.ok) {
+        throw new Error(`API error: ${response.status}`);
+      }
+
+      // Handle streaming response
+      const reader = response.body?.getReader();
+      const decoder = new TextDecoder();
+
+      if (!reader) {
+        throw new Error("No response body");
+      }
+
+      let fullText = "";
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        const chunk = decoder.decode(value, { stream: true });
+        fullText += chunk;
+
+        // Update the agent message with accumulated text
+        setMessages((prev) =>
+          prev.map((msg) =>
+            msg.id === agentMessageId ? { ...msg, text: fullText } : msg
+          )
+        );
+      }
+    } catch (error: any) {
+      console.error("Failed to send message:", error);
+      // Remove the empty agent message on error
+      setMessages((prev) => prev.filter((msg) => msg.id !== agentMessageId));
+      toast({
+        variant: "destructive",
+        title: "Error",
+        description: error.message || "Failed to get response from AI.",
+      });
+    } finally {
+      setIsLoading(false);
+    }
+  }, [inputText, attachments, messages, toast]);
+
+  const handleLogout = async () => {
+    await supabase.auth.signOut();
+    navigate("/home");
+  };
 
   const handleFileSelect = (
     e: React.ChangeEvent<HTMLInputElement>,
@@ -255,54 +363,6 @@ const HoomiAgent = () => {
     }
   };
 
-  const toggleMute = useCallback(() => {
-    if (conversation.status === "connected") {
-      const newMutedState = !isMuted;
-      setIsMuted(newMutedState);
-      isMutedRef.current = newMutedState; // Sync ref for callback
-
-      try {
-        if (newMutedState) {
-          // Mute: Stop audio playback and pause conversation
-          if ((conversation as any).stopAudio) {
-            (conversation as any).stopAudio();
-          }
-          if ((conversation as any).setVolume) {
-            (conversation as any).setVolume(0);
-          }
-          // Also mute microphone input
-          if ((conversation as any).setMuted) {
-            (conversation as any).setMuted(true);
-          }
-        } else {
-          // Unmute: Resume audio and microphone
-          if ((conversation as any).setVolume) {
-            (conversation as any).setVolume(1);
-          }
-          if ((conversation as any).setMuted) {
-            (conversation as any).setMuted(false);
-          }
-        }
-
-        toast({
-          title: newMutedState ? "Conversation Paused" : "Conversation Resumed",
-          description: newMutedState
-            ? "AI is muted and won't respond"
-            : "You can talk with AI now",
-        });
-      } catch (error) {
-        console.error("Error toggling mute:", error);
-        // Fallback: just set state without API calls
-        toast({
-          title: newMutedState ? "Microphone Muted" : "Microphone Unmuted",
-          description: newMutedState
-            ? "You won't be heard"
-            : "You can speak now",
-        });
-      }
-    }
-  }, [conversation, isMuted, toast]);
-
   const userName =
     user?.user_metadata?.name || user?.email?.split("@")[0] || "User";
 
@@ -322,62 +382,15 @@ const HoomiAgent = () => {
             Hoomi Bot
           </h1>
         </div>
-        <button
-          onClick={toggleMute}
-          disabled={conversation.status !== "connected"}
-          className={`rounded-full p-2 transition-all ${
-            conversation.status !== "connected"
-              ? "opacity-50 cursor-not-allowed"
-              : isMuted
-              ? "bg-destructive/20 text-destructive hover:bg-destructive/30"
-              : "bg-primary-foreground/20 text-primary-foreground hover:bg-primary-foreground/30"
-          }`}
-          title={isMuted ? "Unmute Microphone" : "Mute Microphone"}
-        >
-          {isMuted ? (
-            <MicOff className="h-5 w-5" />
-          ) : (
-            <Mic className="h-5 w-5" />
-          )}
-        </button>
+        <div className="w-12" /> {/* Spacer for alignment */}
       </header>
 
       {/* Connection Status */}
-      <div
-        className={`flex items-center justify-center gap-2 py-2 ${
-          conversation.status === "connected"
-            ? "bg-success/10"
-            : "bg-warning/10"
-        }`}
-      >
-        <div
-          className={`h-2 w-2 rounded-full ${
-            conversation.status === "connected"
-              ? "animate-pulse bg-success"
-              : "bg-warning"
-          }`}
-        />
-        <span
-          className={`text-xs font-medium ${
-            conversation.status === "connected"
-              ? "text-success"
-              : "text-warning"
-          }`}
-        >
-          {isConnecting
-            ? "Connecting..."
-            : conversation.status === "connected"
-            ? `Hi ${userName}! Chat with Hoomi`
-            : "Disconnected"}
+      <div className="flex items-center justify-center gap-2 py-2 bg-success/10">
+        <div className="h-2 w-2 rounded-full animate-pulse bg-success" />
+        <span className="text-xs font-medium text-success">
+          Hi {userName}! Chat with Hoomi
         </span>
-        {conversation.status === "disconnected" && !isConnecting && (
-          <button
-            onClick={connectToAgent}
-            className="ml-2 rounded-full bg-primary px-3 py-1 text-xs font-medium text-primary-foreground"
-          >
-            Reconnect
-          </button>
-        )}
       </div>
 
       {/* Messages */}
@@ -441,7 +454,15 @@ const HoomiAgent = () => {
                     ))}
                   </div>
                 )}
-                <p className="text-sm whitespace-pre-wrap">{msg.text}</p>
+                {msg.role === "agent" ? (
+                  <div className="text-sm prose prose-sm dark:prose-invert max-w-none">
+                    <ReactMarkdown rehypePlugins={[rehypeRaw]}>
+                      {msg.text}
+                    </ReactMarkdown>
+                  </div>
+                ) : (
+                  <p className="text-sm whitespace-pre-wrap">{msg.text}</p>
+                )}
                 <p
                   className={`mt-1 text-[10px] ${
                     msg.role === "user"
@@ -457,6 +478,18 @@ const HoomiAgent = () => {
               </div>
             </div>
           ))}
+
+          {/* Loading indicator */}
+          {isLoading && (
+            <div className="flex justify-start">
+              <div className="max-w-[80%] rounded-2xl px-4 py-3 bg-muted text-foreground">
+                <div className="flex items-center gap-2">
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  <span className="text-sm">Hoomi is thinking...</span>
+                </div>
+              </div>
+            </div>
+          )}
         </div>
         <div ref={messagesEndRef} />
       </div>
@@ -501,19 +534,11 @@ const HoomiAgent = () => {
         </div>
       )}
 
-      {/* Floating Voice Visualizer */}
-      {conversation.status === "connected" && !isMuted && (
-        <div className="fixed bottom-[90px] left-1/2 -translate-x-1/2 z-40 flex items-center justify-center gap-2 rounded-full bg-primary/90 backdrop-blur-sm px-4 py-2 shadow-lg">
-          <Mic className="h-4 w-4 text-primary-foreground" />
-          <VoiceVisualizer
-            isActive={true}
-            barCount={5}
-            className="text-primary-foreground"
-            getInputVolume={() => (conversation as any).getInputVolume?.() ?? 0}
-            getInputByteFrequencyData={() =>
-              (conversation as any).getInputByteFrequencyData?.() ?? null
-            }
-          />
+      {/* Listening Indicator */}
+      {isListening && (
+        <div className="fixed bottom-[90px] left-1/2 -translate-x-1/2 z-40 flex items-center justify-center gap-2 rounded-full bg-destructive/90 backdrop-blur-sm px-4 py-2 shadow-lg">
+          <Mic className="h-4 w-4 text-white animate-pulse" />
+          <span className="text-sm text-white font-medium">Listening...</span>
         </div>
       )}
 
@@ -584,6 +609,23 @@ const HoomiAgent = () => {
             </PopoverContent>
           </Popover>
 
+          {/* Mic button for speech-to-text */}
+          <button
+            onClick={toggleListening}
+            className={`flex h-10 w-10 items-center justify-center rounded-full transition-all ${
+              isListening
+                ? "bg-destructive text-white animate-pulse"
+                : "bg-muted text-muted-foreground hover:bg-muted/80"
+            }`}
+            title={isListening ? "Stop listening" : "Start voice input"}
+          >
+            {isListening ? (
+              <MicOff className="h-5 w-5" />
+            ) : (
+              <Mic className="h-5 w-5" />
+            )}
+          </button>
+
           <input
             type="text"
             value={inputText}
@@ -591,13 +633,20 @@ const HoomiAgent = () => {
             onKeyPress={handleKeyPress}
             placeholder="Type a message..."
             className="flex-1 rounded-full border border-border bg-background px-4 py-2.5 text-sm text-foreground outline-none focus:ring-2 focus:ring-primary/20"
+            disabled={isLoading}
           />
           <button
             onClick={sendMessage}
-            disabled={!inputText.trim() && attachments.length === 0}
+            disabled={
+              (!inputText.trim() && attachments.length === 0) || isLoading
+            }
             className="flex h-10 w-10 items-center justify-center rounded-full bg-primary text-primary-foreground disabled:opacity-50"
           >
-            <Send className="h-5 w-5" />
+            {isLoading ? (
+              <Loader2 className="h-5 w-5 animate-spin" />
+            ) : (
+              <Send className="h-5 w-5" />
+            )}
           </button>
         </div>
       </div>

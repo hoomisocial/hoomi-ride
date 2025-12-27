@@ -11,6 +11,25 @@ serve(async (req) => {
     return new Response(null, { headers: corsHeaders });
   }
 
+  // === ELEVENLABS DISABLED - Using Groq API instead ===
+  // This function is no longer used. The chat now uses a Python server
+  // with Groq API (qwen3-32b) for AI responses.
+  // 
+  // To re-enable ElevenLabs, uncomment the code below and remove the
+  // disabled response.
+
+  return new Response(
+    JSON.stringify({ 
+      error: "ElevenLabs integration is disabled",
+      message: "Chat is now using Groq API. Please use the Python server at localhost:8000"
+    }),
+    {
+      status: 503,
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+    }
+  );
+
+  /* === ORIGINAL ELEVENLABS CODE (DISABLED) ===
   try {
     const ELEVENLABS_API_KEY = Deno.env.get('ELEVENLABS_API_KEY');
     const ELEVENLABS_AGENT_ID = Deno.env.get('ELEVENLABS_AGENT_ID');
@@ -61,4 +80,5 @@ serve(async (req) => {
       }
     );
   }
+  */
 });
