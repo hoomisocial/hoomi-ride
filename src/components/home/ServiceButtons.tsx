@@ -8,7 +8,7 @@ export function ServiceButtons() {
     <section className="relative z-10 -mt-4 px-4">
       <div className="grid grid-cols-2 gap-3">
         <button
-          onClick={() => navigate("/transport")}
+          onClick={() => navigate("/location-selection?type=transport")}
           className="flex flex-col items-center gap-2 rounded-2xl bg-card p-6 shadow-lg transition-transform active:scale-[0.98]"
         >
           <div className="flex h-12 w-12 items-center justify-center rounded-full bg-primary/10">
@@ -18,7 +18,7 @@ export function ServiceButtons() {
         </button>
 
         <button
-          onClick={() => navigate("/delivery")}
+          onClick={() => navigate("/location-selection?type=delivery")}
           className="flex flex-col items-center gap-2 rounded-2xl bg-card p-6 shadow-lg transition-transform active:scale-[0.98]"
         >
           <div className="flex h-12 w-12 items-center justify-center rounded-full bg-primary/10">

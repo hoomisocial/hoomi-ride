@@ -137,3 +137,26 @@
 .scrollbar-hide::-webkit-scrollbar {
   display: none;
 }
+
+/* Mapbox custom styles */
+.mapboxgl-popup-content {
+  padding: 8px 12px;
+  border-radius: 8px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+}
+
+.mapboxgl-popup-close-button {
+  font-size: 18px;
+  padding: 4px 8px;
+}
+
+.mapboxgl-ctrl-group {
+  border-radius: 8px !important;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1) !important;
+}
+
+.driver-marker,
+.pickup-marker,
+.dropoff-marker {
+  cursor: pointer;
+}

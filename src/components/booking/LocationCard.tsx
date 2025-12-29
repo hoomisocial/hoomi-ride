@@ -15,6 +15,7 @@ interface LocationCardProps {
   onAddStop?: () => void;
   onRemoveStop?: (id: string) => void;
   onEditStop?: (id: string) => void;
+  className?: string;
 }
 
 export function LocationCard({
@@ -24,9 +25,10 @@ export function LocationCard({
   onAddStop,
   onRemoveStop,
   onEditStop,
+  className = "",
 }: LocationCardProps) {
   return (
-    <div className="card-shadow mx-4 rounded-2xl bg-card p-4">
+    <div className={`card-shadow rounded-2xl bg-card p-4 ${className}`}>
       {/* Time Header */}
       <div className="mb-4 flex border-b border-border pb-3">
         <div className="flex-1">

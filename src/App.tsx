@@ -8,6 +8,7 @@ import Transport from "./pages/Transport";
 import Delivery from "./pages/Delivery";
 import DeliveryDetails from "./pages/DeliveryDetails";
 import LocationPicker from "./pages/LocationPicker";
+import LocationSelection from "./pages/LocationSelection";
 import Tracking from "./pages/Tracking";
 import HoomiAgent from "./pages/HoomiAgent";
 import History from "./pages/History";
@@ -27,6 +28,7 @@ const App = () => (
         <Routes>
           <Route path="/" element={<AppPermissions />} />
           <Route path="/home" element={<Index />} />
+          <Route path="/location-selection" element={<LocationSelection />} />
           <Route path="/transport" element={<Transport />} />
           <Route path="/delivery" element={<Delivery />} />
           <Route path="/delivery/details" element={<DeliveryDetails />} />

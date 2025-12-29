@@ -19,7 +19,7 @@ export function DriverInfo({
   const navigate = useNavigate();
 
   return (
-    <div className="px-4 py-4">
+    <div className="px-4 py-4 rounded-t-3xl bg-card card-shadow">
       <div className="flex items-center justify-between">
         <div>
           <p className="text-lg font-bold text-foreground">{licensePlate}</p>

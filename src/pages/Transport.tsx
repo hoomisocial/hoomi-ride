@@ -1,16 +1,27 @@
-import { useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useState, useEffect } from "react";
+import { useNavigate, useLocation } from "react-router-dom";
 import { MobileLayout } from "@/components/layout/MobileLayout";
 import { Header } from "@/components/layout/Header";
 import { LocationCard } from "@/components/booking/LocationCard";
 import { PaymentSheet } from "@/components/booking/PaymentSheet";
+import { MapPlaceholder } from "@/components/tracking/MapPlaceholder";
 
 const Transport = () => {
   const navigate = useNavigate();
+  const location = useLocation();
+  const locationData = location.state as { pickup: string; dropoff: string } | null;
+  
   const [stops, setStops] = useState([
-    { id: "1", type: "pickup" as const, address: "", detail: "", contact: "" },
-    { id: "2", type: "dropoff" as const, address: "", detail: "", contact: "" },
+    { id: "1", type: "pickup" as const, address: locationData?.pickup || "", detail: "Detail location", contact: "Nama - Telp" },
+    { id: "2", type: "dropoff" as const, address: locationData?.dropoff || "", detail: "Detail location", contact: "Nama - Telp" },
   ]);
+
+  useEffect(() => {
+    // Redirect to location selection if no location data
+    if (!locationData) {
+      navigate("/location-selection?type=transport");
+    }
+  }, [locationData, navigate]);
 
   const handleAddStop = () => {
     const newStop = {
@@ -28,15 +39,29 @@ const Transport = () => {
   };
 
   const handleOrder = () => {
-    navigate("/tracking/123");
+    navigate("/tracking/123", {
+      state: {
+        pickup: stops[0].address,
+        dropoff: stops[stops.length - 1].address,
+        stops: stops,
+        estimatedTime: "10 - 15 menit",
+        distance: "8.0 km",
+        price: 15000,
+      },
+    });
   };
 
   return (
-    <MobileLayout className="bg-background">
-      <Header title="Delivery" />
+    <MobileLayout className="relative flex flex-col h-screen">
+      {/* Fullscreen Map Background */}
+      <MapPlaceholder className="absolute inset-0 w-full h-full z-0" />
       
-      <div className="py-4">
+      {/* Content Layer */}
+      <Header title="Delivery" className="relative z-10 h-32 rounded-b-3xl flex-shrink-0" />
+
+      <div className="relative py-4 z-50 -mt-20 flex-shrink-0">
         <LocationCard
+          className="mx-4"
           pickupTime="Today 14:20"
           deliveryTime="Tomorrow 00:00 - 01:00"
           stops={stops}
@@ -46,13 +71,22 @@ const Transport = () => {
         />
       </div>
 
-      <PaymentSheet
-        options={[
-          { estimatedTime: "10 - 15 menit", distance: "8.0 km", price: 15000 },
-        ]}
-        walletBalance={12000}
-        onOrder={handleOrder}
-      />
+      {/* Spacer */}
+      <div className="flex-1" />
+
+      <div className="relative z-10 flex-shrink-0">
+        <PaymentSheet
+          options={[
+            {
+              estimatedTime: "10 - 15 menit",
+              distance: "8.0 km",
+              price: 15000,
+            },
+          ]}
+          walletBalance={12000}
+          onOrder={handleOrder}
+        />
+      </div>
     </MobileLayout>
   );
 };
