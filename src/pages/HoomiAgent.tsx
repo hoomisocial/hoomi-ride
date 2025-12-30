@@ -112,6 +112,8 @@ const HoomiAgent = () => {
   const cameraInputRef = useRef<HTMLInputElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const recognitionRef = useRef<SpeechRecognition | null>(null);
+  const speechDebounceRef = useRef<NodeJS.Timeout | null>(null);
+  const SPEECH_DEBOUNCE_DELAY = 1500; // 1.5 seconds - adjust as needed
 
   // Check auth status (optional - no redirect if not authenticated)
   useEffect(() => {
@@ -140,7 +142,7 @@ const HoomiAgent = () => {
       window.SpeechRecognition || window.webkitSpeechRecognition;
     if (SpeechRecognition) {
       const recognition = new SpeechRecognition();
-      recognition.continuous = false;
+      recognition.continuous = true; // Changed to true for debounce handling
       recognition.interimResults = true;
       recognition.lang = "id-ID"; // Indonesian, will also work with English
 
@@ -149,25 +151,36 @@ const HoomiAgent = () => {
       recognition.onstart = () => {
         setIsListening(true);
         finalTranscript = "";
+        // Clear any pending debounce
+        if (speechDebounceRef.current) {
+          clearTimeout(speechDebounceRef.current);
+          speechDebounceRef.current = null;
+        }
       };
 
       recognition.onend = () => {
-        setIsListening(false);
-        // Auto-send if there's a final transcript
-        if (finalTranscript.trim()) {
-          // Small delay to ensure state is updated
-          setTimeout(() => {
-            const sendBtn = document.querySelector(
-              "[data-send-btn]"
-            ) as HTMLButtonElement;
-            if (sendBtn && !sendBtn.disabled) {
-              sendBtn.click();
-            }
-          }, 100);
+        // Only stop if we're intentionally stopping (not from browser auto-stop)
+        // The debounce timer will handle the actual send
+        if (!speechDebounceRef.current) {
+          setIsListening(false);
+        } else {
+          // Browser auto-stopped, but we have pending debounce - restart
+          try {
+            recognition.start();
+          } catch (e) {
+            // Already running or can't restart
+            console.log("Could not restart recognition:", e);
+          }
         }
       };
 
       recognition.onresult = (event: SpeechRecognitionEvent) => {
+        // Clear pending debounce on new speech
+        if (speechDebounceRef.current) {
+          clearTimeout(speechDebounceRef.current);
+          speechDebounceRef.current = null;
+        }
+
         let interimTranscript = "";
 
         for (let i = event.resultIndex; i < event.results.length; i++) {
@@ -181,16 +194,41 @@ const HoomiAgent = () => {
 
         // Show interim results while speaking, final when done
         setInputText(finalTranscript + interimTranscript);
+
+        // Start debounce timer - if no new speech for SPEECH_DEBOUNCE_DELAY ms, send
+        speechDebounceRef.current = setTimeout(() => {
+          if (finalTranscript.trim() || interimTranscript.trim()) {
+            recognition.stop();
+            setIsListening(false);
+            // Auto-send after debounce
+            setTimeout(() => {
+              const sendBtn = document.querySelector(
+                "[data-send-btn]"
+              ) as HTMLButtonElement;
+              if (sendBtn && !sendBtn.disabled) {
+                sendBtn.click();
+              }
+            }, 100);
+          }
+          speechDebounceRef.current = null;
+        }, SPEECH_DEBOUNCE_DELAY);
       };
 
       recognition.onerror = (event) => {
         console.error("Speech recognition error:", event.error);
         setIsListening(false);
-        toast({
-          variant: "destructive",
-          title: "Speech Error",
-          description: `Could not recognize speech: ${event.error}`,
-        });
+        // Clear debounce on error
+        if (speechDebounceRef.current) {
+          clearTimeout(speechDebounceRef.current);
+          speechDebounceRef.current = null;
+        }
+        if (event.error !== "no-speech" && event.error !== "aborted") {
+          toast({
+            variant: "destructive",
+            title: "Speech Error",
+            description: `Could not recognize speech: ${event.error}`,
+          });
+        }
       };
 
       recognitionRef.current = recognition;
@@ -199,6 +237,11 @@ const HoomiAgent = () => {
     return () => {
       if (recognitionRef.current) {
         recognitionRef.current.abort();
+      }
+      // Cleanup debounce timer
+      if (speechDebounceRef.current) {
+        clearTimeout(speechDebounceRef.current);
+        speechDebounceRef.current = null;
       }
     };
   }, [toast]);
