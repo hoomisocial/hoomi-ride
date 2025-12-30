@@ -31,7 +31,7 @@ import rehypeRaw from "rehype-raw";
 import remarkGfm from "remark-gfm";
 
 // Groq API endpoint - using streaming
-const GROQ_API_URL = process.env.GROQ_API_URL;
+const GROQ_API_URL = import.meta.env.VITE_GROQ_API_URL;
 
 interface Attachment {
   id: string;
