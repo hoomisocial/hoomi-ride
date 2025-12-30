@@ -9,7 +9,12 @@ import { MapPlaceholder } from "@/components/tracking/MapPlaceholder";
 const Transport = () => {
   const navigate = useNavigate();
   const location = useLocation();
-  const locationData = location.state as { pickup: string; dropoff: string } | null;
+  const locationData = location.state as { 
+    pickup: string; 
+    dropoff: string;
+    pickupCoords?: [number, number];
+    dropoffCoords?: [number, number];
+  } | null;
   
   const [stops, setStops] = useState([
     { id: "1", type: "pickup" as const, address: locationData?.pickup || "", detail: "Detail location", contact: "Nama - Telp" },
@@ -54,7 +59,14 @@ const Transport = () => {
   return (
     <MobileLayout className="relative flex flex-col h-screen">
       {/* Fullscreen Map Background */}
-      <MapPlaceholder className="absolute inset-0 w-full h-full z-0" />
+      <MapPlaceholder 
+        className="absolute inset-0 w-full h-full z-0"
+        center={locationData?.pickupCoords || [106.8456, -6.2088]}
+        pickupCoordinates={locationData?.pickupCoords || null}
+        dropoffCoordinates={locationData?.dropoffCoords || null}
+        showPickupMarker={true}
+        showDropoffMarker={true}
+      />
       
       {/* Content Layer */}
       <Header title="Delivery" className="relative z-10 h-32 rounded-b-3xl flex-shrink-0" />

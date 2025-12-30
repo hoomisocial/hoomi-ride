@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useRef, useEffect } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { MobileLayout } from "@/components/layout/MobileLayout";
 import { Header } from "@/components/layout/Header";
@@ -8,21 +8,95 @@ import { MapPin, Navigation, Loader2 } from "lucide-react";
 export default function LocationSelection() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
-  const serviceType = searchParams.get("type") || "transport"; // transport or delivery
+  const serviceType = searchParams.get("type") || "transport";
 
   const [step, setStep] = useState<"pickup" | "dropoff">("pickup");
   const [pickupLocation, setPickupLocation] = useState("");
   const [dropoffLocation, setDropoffLocation] = useState("");
-  const [pickupCoords, setPickupCoords] = useState<[number, number]>([106.8456, -6.2088]); // Default Jakarta
-  const [dropoffCoords, setDropoffCoords] = useState<[number, number]>([106.8156, -6.2288]);
+  const [pickupCoords, setPickupCoords] = useState<[number, number] | null>(null);
+  const [dropoffCoords, setDropoffCoords] = useState<[number, number] | null>(null);
   const [isLoading, setIsLoading] = useState(false);
-  const [mapCenter, setMapCenter] = useState<[number, number]>([106.8456, -6.2088]);
   const [suggestions, setSuggestions] = useState<Array<{ name: string; coords: [number, number] }>>([]);
   const [showSuggestions, setShowSuggestions] = useState(false);
+  
+  const geocodeTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const stepRef = useRef<"pickup" | "dropoff">("pickup");
+
+  // Keep stepRef in sync with step state
+  useEffect(() => {
+    stepRef.current = step;
+  }, [step]);
+
+  // Derive map center from current step's coordinates
+  const getMapCenter = (): [number, number] => {
+    if (step === "pickup") {
+      return pickupCoords || [106.8456, -6.2088];
+    } else {
+      return dropoffCoords || pickupCoords || [106.8456, -6.2088];
+    }
+  };
+
+  // Handle map movement - update location as user drags
+  const handleMapMove = (newCenter: [number, number]) => {
+    // Use ref to get current step value (no closure issues)
+    const currentStep = stepRef.current;
+    
+    // Clear existing timeout first
+    if (geocodeTimeoutRef.current) {
+      clearTimeout(geocodeTimeoutRef.current);
+    }
+    
+    // Only update coordinates for current step
+    if (currentStep === "pickup") {
+      setPickupCoords(newCenter);
+      setPickupLocation("Memuat lokasi...");
+    } else if (currentStep === "dropoff") {
+      // In dropoff step, only update dropoff coords, never pickup
+      setDropoffCoords(newCenter);
+      setDropoffLocation("Memuat lokasi...");
+    } else {
+      return; // Don't proceed if step is invalid
+    }
+    
+    // Debounce reverse geocoding for address name
+    geocodeTimeoutRef.current = setTimeout(async () => {
+      const locationName = await reverseGeocode(newCenter);
+      
+      // Re-check step from ref in case it changed
+      const stepAtGeocode = stepRef.current;
+      
+      // Use ref value to ensure we update the correct location
+      if (stepAtGeocode === "pickup") {
+        setPickupLocation(locationName);
+      } else if (stepAtGeocode === "dropoff") {
+        setDropoffLocation(locationName);
+      }
+    }, 600);
+  };
+
+  // Reverse geocode coordinates to get location name
+  const reverseGeocode = async (coords: [number, number]): Promise<string> => {
+    try {
+      const token = import.meta.env.VITE_MAPBOX_ACCESS_TOKEN;
+      const response = await fetch(
+        `https://api.mapbox.com/geocoding/v5/mapbox.places/${coords[0]},${coords[1]}.json?` +
+        `access_token=${token}&` +
+        `language=id` // No types restriction - get most specific result available
+      );
+      const data = await response.json();
+      
+      return data.features && data.features.length > 0 
+        ? data.features[0].place_name 
+        : "Lokasi Terpilih";
+    } catch (error) {
+      console.error("Error reverse geocoding:", error);
+      return "Lokasi Terpilih";
+    }
+  };
 
   // Search location with Mapbox Geocoding API
   const searchLocation = async (query: string) => {
-    if (!query || query.length < 3) {
+    if (!query || query.length < 2) {
       setSuggestions([]);
       setShowSuggestions(false);
       return;
@@ -30,8 +104,16 @@ export default function LocationSelection() {
 
     try {
       const token = import.meta.env.VITE_MAPBOX_ACCESS_TOKEN;
+      const center = getMapCenter();
+      const proximity = `${center[0]},${center[1]}`;
+      
       const response = await fetch(
-        `https://api.mapbox.com/geocoding/v5/mapbox.places/${encodeURIComponent(query)}.json?access_token=${token}&country=ID&language=id&limit=5`
+        `https://api.mapbox.com/geocoding/v5/mapbox.places/${encodeURIComponent(query)}.json?` +
+        `access_token=${token}&` +
+        `country=ID&` +
+        `language=id&` +
+        `limit=15&` + // Increased limit for more options
+        `proximity=${proximity}` // No types restriction - show all relevant results
       );
       const data = await response.json();
       
@@ -42,6 +124,9 @@ export default function LocationSelection() {
         }));
         setSuggestions(results);
         setShowSuggestions(true);
+      } else {
+        setSuggestions([]);
+        setShowSuggestions(false);
       }
     } catch (error) {
       console.error("Error searching location:", error);
@@ -58,14 +143,15 @@ export default function LocationSelection() {
   };
 
   const handleSelectSuggestion = (name: string, coords: [number, number]) => {
+    // Update coordinates and location name
     if (step === "pickup") {
-      setPickupLocation(name);
       setPickupCoords(coords);
+      setPickupLocation(name);
     } else {
-      setDropoffLocation(name);
       setDropoffCoords(coords);
+      setDropoffLocation(name);
     }
-    setMapCenter(coords);
+    
     setSuggestions([]);
     setShowSuggestions(false);
   };
@@ -74,24 +160,39 @@ export default function LocationSelection() {
     if ("geolocation" in navigator) {
       setIsLoading(true);
       navigator.geolocation.getCurrentPosition(
-        (position) => {
+        async (position) => {
           const { longitude, latitude } = position.coords;
           const coords: [number, number] = [longitude, latitude];
-          setMapCenter(coords);
-          // For now, just set a default location name
+          
+          // Set coordinates first
           if (step === "pickup") {
-            setPickupLocation("Lokasi Saat Ini");
             setPickupCoords(coords);
+            setPickupLocation("Mengambil alamat...");
           } else {
-            setDropoffLocation("Lokasi Saat Ini");
             setDropoffCoords(coords);
+            setDropoffLocation("Mengambil alamat...");
           }
+          
+          // Then get address name
+          const locationName = await reverseGeocode(coords);
+          
+          if (step === "pickup") {
+            setPickupLocation(locationName);
+          } else {
+            setDropoffLocation(locationName);
+          }
+          
           setIsLoading(false);
         },
         (error) => {
           console.error("Error getting location:", error);
           alert("Tidak dapat mengakses lokasi Anda. Pastikan GPS aktif dan izin lokasi diberikan.");
           setIsLoading(false);
+        },
+        {
+          enableHighAccuracy: true,
+          timeout: 10000,
+          maximumAge: 0
         }
       );
     } else {
@@ -100,12 +201,40 @@ export default function LocationSelection() {
   };
 
   const handleConfirmLocation = () => {
-    if (step === "pickup" && pickupLocation) {
+    if (step === "pickup") {
+      if (!pickupLocation || !pickupCoords) {
+        alert("Silakan pilih lokasi penjemputan terlebih dahulu");
+        return;
+      }
+      
+      // Transition to dropoff step
       setStep("dropoff");
-      // Reset map center to different location for dropoff
-      setMapCenter([pickupCoords[0] + 0.01, pickupCoords[1] - 0.01]);
-    } else if (step === "dropoff" && dropoffLocation) {
-      // Navigate to the appropriate service page
+      
+      // If dropoff not set yet, initialize with offset from pickup and trigger geocoding
+      if (!dropoffCoords && pickupCoords) {
+        const offsetCoords: [number, number] = [
+          pickupCoords[0] + 0.003, // ~300m offset
+          pickupCoords[1] - 0.003
+        ];
+        setDropoffCoords(offsetCoords);
+        setDropoffLocation("Memuat lokasi..."); // Show loading state
+        
+        // Immediately reverse geocode the offset location
+        reverseGeocode(offsetCoords).then((locationName) => {
+          setDropoffLocation(locationName);
+        });
+      }
+    } else {
+      if (!dropoffLocation || !dropoffCoords) {
+        alert("Silakan pilih lokasi tujuan terlebih dahulu");
+        return;
+      }
+      
+      if (!pickupCoords) {
+        alert("Lokasi penjemputan tidak valid");
+        return;
+      }
+      
       navigate(`/${serviceType}`, {
         state: {
           pickup: pickupLocation,
@@ -117,48 +246,55 @@ export default function LocationSelection() {
     }
   };
 
+  const handleBack = () => {
+    if (step === "dropoff") {
+      // Go back to pickup step and clear dropoff selection
+      setStep("pickup");
+      setDropoffCoords(null);
+      setDropoffLocation("");
+    } else {
+      navigate(-1);
+    }
+  };
+
   const isCurrentStep = (stepName: "pickup" | "dropoff") => step === stepName;
-  const canProceed = step === "pickup" ? pickupLocation : dropoffLocation;
+  const canProceed = step === "pickup" 
+    ? !!(pickupLocation && pickupCoords)
+    : !!(dropoffLocation && dropoffCoords);
 
   const getHeaderTitle = () => {
-    if (step === "pickup") {
-      return "Pilih Lokasi Penjemputan";
-    }
-    return "Pilih Lokasi Tujuan";
+    return step === "pickup" ? "Pilih Lokasi Penjemputan" : "Pilih Lokasi Tujuan";
   };
 
   return (
     <MobileLayout className="relative flex flex-col h-screen">
       {/* Fullscreen Map Background */}
-      <MapPlaceholder 
-        className="absolute inset-0 w-full h-full z-0" 
-        pickupCoordinates={pickupCoords}
-        dropoffCoordinates={dropoffCoords}
-        driverCoordinates={mapCenter}
-      />
+      <div className="absolute inset-0 w-full h-full" style={{ touchAction: 'none' }}>
+        <MapPlaceholder 
+          className="w-full h-full" 
+          center={getMapCenter()}
+          pickupCoordinates={pickupCoords}
+          dropoffCoordinates={dropoffCoords}
+          onMapMove={handleMapMove}
+          showPickupMarker={step === "pickup"} // Only show pickup marker in pickup step
+          showDropoffMarker={step === "dropoff"} // Only show dropoff marker in dropoff step
+        />
+      </div>
       
       {/* Content Layer */}
       <Header
         title={getHeaderTitle()}
         className="relative z-10 rounded-b-3xl flex-shrink-0"
-        onBack={() => (step === "dropoff" ? setStep("pickup") : navigate(-1))}
+        onBack={handleBack}
       />
 
       {/* Map Controls Overlay */}
-      <div className="relative z-10 flex-1">
-        {/* Center Pin */}
-        <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-full z-10">
-          <MapPin
-            className="h-12 w-12 text-primary drop-shadow-lg animate-bounce"
-            fill="currentColor"
-          />
-        </div>
-
+      <div className="relative z-10 flex-1 pointer-events-none">
         {/* Current Location Button */}
         <button
           onClick={handleCurrentLocation}
           disabled={isLoading}
-          className="absolute top-4 right-4 z-10 p-3 rounded-full bg-card shadow-lg disabled:opacity-50"
+          className="absolute top-4 right-4 z-10 p-3 rounded-full bg-card shadow-lg disabled:opacity-50 pointer-events-auto"
         >
           {isLoading ? (
             <Loader2 className="h-5 w-5 text-primary animate-spin" />
@@ -190,8 +326,8 @@ export default function LocationSelection() {
         </h2>
         <p className="text-sm text-muted-foreground mb-4">
           {step === "pickup"
-            ? "Geser peta untuk memilih lokasi penjemputan"
-            : "Geser peta untuk memilih lokasi tujuan"}
+            ? "Geser peta atau cari lokasi penjemputan"
+            : "Geser peta atau cari lokasi tujuan"}
         </p>
 
         {/* Location Input */}
@@ -207,7 +343,8 @@ export default function LocationSelection() {
               }
               value={step === "pickup" ? pickupLocation : dropoffLocation}
               onChange={(e) => handleLocationInput(e.target.value)}
-              onFocus={() => {
+              onFocus={(e) => {
+                e.target.select(); // Select all text on focus
                 if (suggestions.length > 0) setShowSuggestions(true);
               }}
               className="flex-1 bg-transparent outline-none text-foreground placeholder:text-muted-foreground"
@@ -216,7 +353,7 @@ export default function LocationSelection() {
 
           {/* Suggestions Dropdown */}
           {showSuggestions && suggestions.length > 0 && (
-            <div className="absolute top-full left-0 right-0 mt-2 bg-card rounded-xl shadow-lg border border-border max-h-60 overflow-y-auto z-50">
+            <div className="absolute bottom-full left-0 right-0 mb-2 bg-card rounded-xl shadow-lg border border-border max-h-60 overflow-y-auto z-50">
               {suggestions.map((suggestion, index) => (
                 <button
                   key={index}
@@ -247,7 +384,11 @@ export default function LocationSelection() {
         <div className="flex gap-3 mb-4">
           {step === "dropoff" && (
             <button
-              onClick={() => setStep("pickup")}
+              onClick={() => {
+                setStep("pickup");
+                setDropoffCoords(null);
+                setDropoffLocation("");
+              }}
               className="px-6 py-3 rounded-full border-2 border-primary text-primary font-semibold"
             >
               Kembali
