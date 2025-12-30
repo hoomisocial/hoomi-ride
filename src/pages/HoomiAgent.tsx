@@ -1,16 +1,37 @@
-import { useConversation } from "@elevenlabs/react";
+// === ELEVENLABS IMPORT DISABLED - Using Groq + Web Speech API instead ===
+// import { useConversation } from "@elevenlabs/react";
+
 import { useState, useCallback, useRef, useEffect } from "react";
-import { Send, Bot, Plus, Image, Camera, File, X } from "lucide-react";
+import {
+  Send,
+  Bot,
+  Plus,
+  Image,
+  Camera,
+  File,
+  X,
+  Mic,
+  MicOff,
+  Loader2,
+} from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { MobileLayout } from "@/components/layout/MobileLayout";
 import { useToast } from "@/hooks/use-toast";
 import { supabase } from "@/integrations/supabase/client";
 import { User } from "@supabase/supabase-js";
+// === DISABLED - No longer using ElevenLabs voice visualizer ===
+// import { VoiceVisualizer } from "@/components/ui/VoiceVisualizer";
 import {
   Popover,
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
+import ReactMarkdown from "react-markdown";
+import rehypeRaw from "rehype-raw";
+import remarkGfm from "remark-gfm";
+
+// Groq API endpoint - using streaming
+const GROQ_API_URL = import.meta.env.VITE_GROQ_API_URL;
 
 interface Attachment {
   id: string;
@@ -28,37 +49,240 @@ interface Message {
   attachments?: Attachment[];
 }
 
+// Web Speech API type declarations
+interface SpeechRecognitionEvent extends Event {
+  results: SpeechRecognitionResultList;
+  resultIndex: number;
+}
+
+interface SpeechRecognitionResultList {
+  length: number;
+  item(index: number): SpeechRecognitionResult;
+  [index: number]: SpeechRecognitionResult;
+}
+
+interface SpeechRecognitionResult {
+  isFinal: boolean;
+  length: number;
+  item(index: number): SpeechRecognitionAlternative;
+  [index: number]: SpeechRecognitionAlternative;
+}
+
+interface SpeechRecognitionAlternative {
+  transcript: string;
+  confidence: number;
+}
+
+declare global {
+  interface Window {
+    SpeechRecognition: new () => SpeechRecognition;
+    webkitSpeechRecognition: new () => SpeechRecognition;
+  }
+}
+
+interface SpeechRecognition extends EventTarget {
+  continuous: boolean;
+  interimResults: boolean;
+  lang: string;
+  start(): void;
+  stop(): void;
+  abort(): void;
+  onstart: ((this: SpeechRecognition, ev: Event) => void) | null;
+  onend: ((this: SpeechRecognition, ev: Event) => void) | null;
+  onresult:
+    | ((this: SpeechRecognition, ev: SpeechRecognitionEvent) => void)
+    | null;
+  onerror:
+    | ((this: SpeechRecognition, ev: Event & { error: string }) => void)
+    | null;
+}
+
 const HoomiAgent = () => {
   const navigate = useNavigate();
   const { toast } = useToast();
   const [user, setUser] = useState<User | null>(null);
-  const [isConnecting, setIsConnecting] = useState(false);
   const [messages, setMessages] = useState<Message[]>([]);
   const [inputText, setInputText] = useState("");
   const [attachments, setAttachments] = useState<Attachment[]>([]);
   const [isUploadOpen, setIsUploadOpen] = useState(false);
+  const [isListening, setIsListening] = useState(false);
+  const [isLoading, setIsLoading] = useState(false);
+  const [userLocation, setUserLocation] = useState<{
+    latitude: number;
+    longitude: number;
+  } | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const imageInputRef = useRef<HTMLInputElement>(null);
   const cameraInputRef = useRef<HTMLInputElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const recognitionRef = useRef<SpeechRecognition | null>(null);
+  const speechDebounceRef = useRef<NodeJS.Timeout | null>(null);
+  const SPEECH_DEBOUNCE_DELAY = 1500; // 1.5 seconds - adjust as needed
 
   // Check auth status (optional - no redirect if not authenticated)
   useEffect(() => {
     const checkAuth = async () => {
-      const { data: { session } } = await supabase.auth.getSession();
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
       if (session) {
         setUser(session.user);
       }
     };
     checkAuth();
 
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange((event, session) => {
       setUser(session?.user ?? null);
     });
 
     return () => subscription.unsubscribe();
   }, []);
 
+  // Get user GPS location
+  useEffect(() => {
+    if (navigator.geolocation) {
+      navigator.geolocation.getCurrentPosition(
+        (position) => {
+          setUserLocation({
+            latitude: position.coords.latitude,
+            longitude: position.coords.longitude,
+          });
+          // Store in localStorage for persistence
+          localStorage.setItem(
+            "hoomi_user_location",
+            JSON.stringify({
+              latitude: position.coords.latitude,
+              longitude: position.coords.longitude,
+            })
+          );
+        },
+        (error) => {
+          console.warn("Geolocation error:", error.message);
+          // Try to load from localStorage
+          const stored = localStorage.getItem("hoomi_user_location");
+          if (stored) {
+            setUserLocation(JSON.parse(stored));
+          }
+        },
+        { enableHighAccuracy: true, timeout: 10000 }
+      );
+    }
+  }, []);
+
+  // Initialize Web Speech API
+  useEffect(() => {
+    const SpeechRecognition =
+      window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (SpeechRecognition) {
+      const recognition = new SpeechRecognition();
+      recognition.continuous = true; // Changed to true for debounce handling
+      recognition.interimResults = true;
+      recognition.lang = "id-ID"; // Indonesian, will also work with English
+
+      let finalTranscript = "";
+
+      recognition.onstart = () => {
+        setIsListening(true);
+        finalTranscript = "";
+        // Clear any pending debounce
+        if (speechDebounceRef.current) {
+          clearTimeout(speechDebounceRef.current);
+          speechDebounceRef.current = null;
+        }
+      };
+
+      recognition.onend = () => {
+        // Only stop if we're intentionally stopping (not from browser auto-stop)
+        // The debounce timer will handle the actual send
+        if (!speechDebounceRef.current) {
+          setIsListening(false);
+        } else {
+          // Browser auto-stopped, but we have pending debounce - restart
+          try {
+            recognition.start();
+          } catch (e) {
+            // Already running or can't restart
+            console.log("Could not restart recognition:", e);
+          }
+        }
+      };
+
+      recognition.onresult = (event: SpeechRecognitionEvent) => {
+        // Clear pending debounce on new speech
+        if (speechDebounceRef.current) {
+          clearTimeout(speechDebounceRef.current);
+          speechDebounceRef.current = null;
+        }
+
+        let interimTranscript = "";
+
+        for (let i = event.resultIndex; i < event.results.length; i++) {
+          const result = event.results[i];
+          if (result.isFinal) {
+            finalTranscript += result[0].transcript;
+          } else {
+            interimTranscript += result[0].transcript;
+          }
+        }
+
+        // Show interim results while speaking, final when done
+        setInputText(finalTranscript + interimTranscript);
+
+        // Start debounce timer - if no new speech for SPEECH_DEBOUNCE_DELAY ms, send
+        speechDebounceRef.current = setTimeout(() => {
+          if (finalTranscript.trim() || interimTranscript.trim()) {
+            recognition.stop();
+            setIsListening(false);
+            // Auto-send after debounce
+            setTimeout(() => {
+              const sendBtn = document.querySelector(
+                "[data-send-btn]"
+              ) as HTMLButtonElement;
+              if (sendBtn && !sendBtn.disabled) {
+                sendBtn.click();
+              }
+            }, 100);
+          }
+          speechDebounceRef.current = null;
+        }, SPEECH_DEBOUNCE_DELAY);
+      };
+
+      recognition.onerror = (event) => {
+        console.error("Speech recognition error:", event.error);
+        setIsListening(false);
+        // Clear debounce on error
+        if (speechDebounceRef.current) {
+          clearTimeout(speechDebounceRef.current);
+          speechDebounceRef.current = null;
+        }
+        if (event.error !== "no-speech" && event.error !== "aborted") {
+          toast({
+            variant: "destructive",
+            title: "Speech Error",
+            description: `Could not recognize speech: ${event.error}`,
+          });
+        }
+      };
+
+      recognitionRef.current = recognition;
+    }
+
+    return () => {
+      if (recognitionRef.current) {
+        recognitionRef.current.abort();
+      }
+      // Cleanup debounce timer
+      if (speechDebounceRef.current) {
+        clearTimeout(speechDebounceRef.current);
+        speechDebounceRef.current = null;
+      }
+    };
+  }, [toast]);
+
+  // === ELEVENLABS CONVERSATION HOOK DISABLED ===
+  /*
   const conversation = useConversation({
     onConnect: () => {
       console.log("Connected to Hoomi Agent");
@@ -71,118 +295,153 @@ const HoomiAgent = () => {
       console.log("Disconnected from Hoomi Agent");
     },
     onMessage: (message: any) => {
-      console.log("Message:", message);
-      if (message.type === "user_transcript") {
-        const text = message.user_transcription_event?.user_transcript;
-        if (text) {
-          setMessages((prev) => [
-            ...prev,
-            { id: Date.now().toString(), role: "user", text, timestamp: new Date() },
-          ]);
-        }
-      } else if (message.type === "agent_response") {
-        const text = message.agent_response_event?.agent_response;
-        if (text) {
-          setMessages((prev) => [
-            ...prev,
-            { id: Date.now().toString(), role: "agent", text, timestamp: new Date() },
-          ]);
-        }
-      }
+      // ElevenLabs message handling...
     },
     onError: (error: any) => {
       console.error("Error:", error);
-      toast({
-        variant: "destructive",
-        title: "Connection Error",
-        description: "Failed to connect to Hoomi Bot. Please try again.",
-      });
-      setIsConnecting(false);
     },
   });
+  */
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
 
-  // Auto-connect when user is authenticated
-  useEffect(() => {
-    if (user && conversation.status === "disconnected" && !isConnecting) {
-      connectToAgent();
-    }
-  }, [user]);
-
-  const connectToAgent = async () => {
-    setIsConnecting(true);
-    try {
-      // Request mic permission
-      await navigator.mediaDevices.getUserMedia({ audio: true });
-
-      // Get signed URL from our edge function
-      const { data, error } = await supabase.functions.invoke("elevenlabs-token");
-
-      if (error) {
-        console.error("Token error:", error);
-        throw new Error("Failed to get connection token");
-      }
-
-      if (!data?.signed_url) {
-        console.error("No signed URL received:", data);
-        throw new Error("No connection URL received");
-      }
-
-      console.log("Got signed URL, connecting...");
-
-      // Connect using the signed URL
-      await (conversation as any).startSession({
-        signedUrl: data.signed_url,
-      });
-
-      setMessages([]);
-    } catch (error: any) {
-      console.error("Failed to connect:", error);
+  // Toggle speech recognition
+  const toggleListening = useCallback(() => {
+    if (!recognitionRef.current) {
       toast({
         variant: "destructive",
-        title: "Connection Failed",
-        description: error.message || "Could not connect to Hoomi Bot.",
+        title: "Not Supported",
+        description:
+          "Speech recognition is not supported in this browser. Please use Chrome.",
+      });
+      return;
+    }
+
+    if (isListening) {
+      recognitionRef.current.stop();
+    } else {
+      recognitionRef.current.start();
+    }
+  }, [isListening, toast]);
+
+  // Send message to Groq API with streaming
+  const sendMessage = useCallback(async () => {
+    if (!inputText.trim() && attachments.length === 0) return;
+
+    const text = inputText.trim();
+    const currentAttachments = [...attachments];
+
+    // Add user message to chat
+    const userMessage: Message = {
+      id: Date.now().toString(),
+      role: "user",
+      text:
+        text ||
+        (currentAttachments.length > 0
+          ? `Sent ${currentAttachments.length} file(s)`
+          : ""),
+      timestamp: new Date(),
+      attachments:
+        currentAttachments.length > 0 ? currentAttachments : undefined,
+    };
+
+    setMessages((prev) => [...prev, userMessage]);
+    setInputText("");
+    setAttachments([]);
+    setIsLoading(true);
+
+    // Create agent message placeholder for streaming
+    const agentMessageId = (Date.now() + 1).toString();
+    setMessages((prev) => [
+      ...prev,
+      {
+        id: agentMessageId,
+        role: "agent",
+        text: "",
+        timestamp: new Date(),
+      },
+    ]);
+
+    try {
+      // Build message history for context
+      const messageHistory = [...messages, userMessage].map((msg) => ({
+        role: msg.role === "user" ? "user" : "assistant",
+        content: msg.text,
+      }));
+
+      // Call Groq API with streaming
+      const response = await fetch(GROQ_API_URL, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          messages: messageHistory,
+          user_email: user?.email || "daffa.sayra.firdaus@gmail.com",
+          user_latitude: userLocation?.latitude,
+          user_longitude: userLocation?.longitude,
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error(`API error: ${response.status}`);
+      }
+
+      // Handle streaming response
+      const reader = response.body?.getReader();
+      const decoder = new TextDecoder();
+
+      if (!reader) {
+        throw new Error("No response body");
+      }
+
+      let fullText = "";
+      let isFirstChunk = true;
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        const chunk = decoder.decode(value, { stream: true });
+        fullText += chunk;
+
+        // Hide loading indicator on first chunk
+        if (isFirstChunk) {
+          setIsLoading(false);
+          isFirstChunk = false;
+        }
+
+        // Update the agent message with accumulated text
+        setMessages((prev) =>
+          prev.map((msg) =>
+            msg.id === agentMessageId ? { ...msg, text: fullText } : msg
+          )
+        );
+      }
+    } catch (error: any) {
+      console.error("Failed to send message:", error);
+      // Remove the empty agent message on error
+      setMessages((prev) => prev.filter((msg) => msg.id !== agentMessageId));
+      toast({
+        variant: "destructive",
+        title: "Error",
+        description: error.message || "Failed to get response from AI.",
       });
     } finally {
-      setIsConnecting(false);
+      setIsLoading(false);
     }
-  };
+  }, [inputText, attachments, messages, toast, user, userLocation]);
 
   const handleLogout = async () => {
-    await conversation.endSession();
     await supabase.auth.signOut();
     navigate("/home");
   };
 
-  const sendMessage = useCallback(() => {
-    if ((!inputText.trim() && attachments.length === 0)) return;
-
-    const text = inputText.trim();
-    const currentAttachments = [...attachments];
-    
-    setMessages((prev) => [
-      ...prev,
-      { 
-        id: Date.now().toString(), 
-        role: "user", 
-        text: text || (currentAttachments.length > 0 ? `Sent ${currentAttachments.length} file(s)` : ""),
-        timestamp: new Date(),
-        attachments: currentAttachments.length > 0 ? currentAttachments : undefined,
-      },
-    ]);
-
-    if (conversation.status === "connected" && text) {
-      (conversation as any).sendUserMessage?.(text);
-    }
-    
-    setInputText("");
-    setAttachments([]);
-  }, [conversation, inputText, attachments]);
-
-  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>, type: "image" | "file") => {
+  const handleFileSelect = (
+    e: React.ChangeEvent<HTMLInputElement>,
+    type: "image" | "file"
+  ) => {
     const files = e.target.files;
     if (!files) return;
 
@@ -196,7 +455,7 @@ const HoomiAgent = () => {
 
     setAttachments((prev) => [...prev, ...newAttachments]);
     setIsUploadOpen(false);
-    
+
     // Reset input
     e.target.value = "";
   };
@@ -218,12 +477,13 @@ const HoomiAgent = () => {
     }
   };
 
-  const userName = user?.user_metadata?.name || user?.email?.split("@")[0] || "User";
+  const userName =
+    user?.user_metadata?.name || user?.email?.split("@")[0] || "User";
 
   return (
-    <MobileLayout className="flex flex-col bg-background">
-      {/* Header */}
-      <header className="sticky top-0 z-50 flex items-center justify-between bg-primary px-4 py-3">
+    <MobileLayout className="flex flex-col h-full bg-background overflow-hidden">
+      {/* Header - Fixed at top */}
+      <header className="flex-shrink-0 flex items-center justify-between bg-primary px-4 py-3">
         <button
           onClick={() => navigate("/home")}
           className="text-primary-foreground/80 hover:text-primary-foreground"
@@ -232,41 +492,31 @@ const HoomiAgent = () => {
         </button>
         <div className="flex items-center gap-2">
           <Bot className="h-5 w-5 text-primary-foreground" />
-          <h1 className="text-lg font-semibold text-primary-foreground">Hoomi Bot</h1>
+          <h1 className="text-lg font-semibold text-primary-foreground">
+            Hoomi Bot
+          </h1>
         </div>
-        <div className="w-5" /> {/* Spacer for alignment */}
+        <div className="w-12" /> {/* Spacer for alignment */}
       </header>
 
-      {/* Connection Status */}
-      <div className={`flex items-center justify-center gap-2 py-2 ${
-        conversation.status === "connected" ? "bg-success/10" : "bg-warning/10"
-      }`}>
-        <div className={`h-2 w-2 rounded-full ${
-          conversation.status === "connected" ? "animate-pulse bg-success" : "bg-warning"
-        }`} />
-        <span className={`text-xs font-medium ${
-          conversation.status === "connected" ? "text-success" : "text-warning"
-        }`}>
-          {isConnecting ? "Connecting..." : conversation.status === "connected" ? `Hi ${userName}! Chat with Hoomi` : "Disconnected"}
+      {/* Connection Status - Fixed below header */}
+      <div className="flex-shrink-0 flex items-center justify-center gap-2 py-2 bg-success/10">
+        <div className="h-2 w-2 rounded-full animate-pulse bg-success" />
+        <span className="text-xs font-medium text-success">
+          Hi {userName}! Chat with Hoomi
         </span>
-        {conversation.status === "disconnected" && !isConnecting && (
-          <button
-            onClick={connectToAgent}
-            className="ml-2 rounded-full bg-primary px-3 py-1 text-xs font-medium text-primary-foreground"
-          >
-            Reconnect
-          </button>
-        )}
       </div>
 
-      {/* Messages */}
-      <div className="flex-1 overflow-y-auto p-4">
+      {/* Messages - Scrollable area */}
+      <div className="flex-1 overflow-y-auto p-4 pb-32">
         {messages.length === 0 && (
           <div className="flex flex-col items-center justify-center py-12 text-center">
             <div className="flex h-16 w-16 items-center justify-center rounded-full bg-primary/10">
               <Bot className="h-8 w-8 text-primary" />
             </div>
-            <p className="mt-4 font-medium text-foreground">Chat with Hoomi Bot</p>
+            <p className="mt-4 font-medium text-foreground">
+              Chat with Hoomi Bot
+            </p>
             <p className="mt-1 text-sm text-muted-foreground">
               Ask about deliveries, track orders, or get help with bookings.
             </p>
@@ -277,7 +527,9 @@ const HoomiAgent = () => {
           {messages.map((msg) => (
             <div
               key={msg.id}
-              className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}
+              className={`flex ${
+                msg.role === "user" ? "justify-end" : "justify-start"
+              }`}
             >
               <div
                 className={`max-w-[80%] rounded-2xl px-4 py-3 ${
@@ -289,7 +541,9 @@ const HoomiAgent = () => {
                 {msg.role === "agent" && (
                   <div className="mb-1 flex items-center gap-1">
                     <Bot className="h-3 w-3" />
-                    <span className="text-xs font-medium opacity-70">Hoomi</span>
+                    <span className="text-xs font-medium opacity-70">
+                      Hoomi
+                    </span>
                   </div>
                 )}
                 {msg.attachments && msg.attachments.length > 0 && (
@@ -305,20 +559,38 @@ const HoomiAgent = () => {
                         ) : (
                           <div className="flex items-center gap-2 rounded-lg bg-background/20 px-3 py-2">
                             <File className="h-4 w-4" />
-                            <span className="max-w-[100px] truncate text-xs">{attachment.name}</span>
+                            <span className="max-w-[100px] truncate text-xs">
+                              {attachment.name}
+                            </span>
                           </div>
                         )}
                       </div>
                     ))}
                   </div>
                 )}
-                <p className="text-sm whitespace-pre-wrap">{msg.text}</p>
+                {msg.role === "agent" ? (
+                  <div className="text-sm prose prose-sm dark:prose-invert max-w-none">
+                    <ReactMarkdown
+                      remarkPlugins={[remarkGfm]}
+                      rehypePlugins={[rehypeRaw]}
+                    >
+                      {msg.text}
+                    </ReactMarkdown>
+                  </div>
+                ) : (
+                  <p className="text-sm whitespace-pre-wrap">{msg.text}</p>
+                )}
                 <p
                   className={`mt-1 text-[10px] ${
-                    msg.role === "user" ? "text-primary-foreground/60" : "text-muted-foreground"
+                    msg.role === "user"
+                      ? "text-primary-foreground/60"
+                      : "text-muted-foreground"
                   }`}
                 >
-                  {msg.timestamp.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+                  {msg.timestamp.toLocaleTimeString([], {
+                    hour: "2-digit",
+                    minute: "2-digit",
+                  })}
                 </p>
               </div>
             </div>
@@ -329,7 +601,7 @@ const HoomiAgent = () => {
 
       {/* Attachment Preview */}
       {attachments.length > 0 && (
-        <div className="border-t border-border bg-muted/50 px-4 py-2">
+        <div className="fixed bottom-[140px] left-0 right-0 z-40 max-w-md mx-auto border-t border-border bg-muted/95 backdrop-blur-sm px-4 py-2">
           <div className="flex flex-wrap gap-2">
             {attachments.map((attachment) => (
               <div key={attachment.id} className="relative">
@@ -350,7 +622,9 @@ const HoomiAgent = () => {
                 ) : (
                   <div className="relative flex items-center gap-2 rounded-lg bg-muted px-3 py-2">
                     <File className="h-4 w-4" />
-                    <span className="max-w-[80px] truncate text-xs">{attachment.name}</span>
+                    <span className="max-w-[80px] truncate text-xs">
+                      {attachment.name}
+                    </span>
                     <button
                       onClick={() => removeAttachment(attachment.id)}
                       className="flex h-4 w-4 items-center justify-center rounded-full bg-destructive text-destructive-foreground"
@@ -365,91 +639,126 @@ const HoomiAgent = () => {
         </div>
       )}
 
-      {/* Input */}
-      <div className="border-t border-border bg-card p-4 safe-bottom">
-        {/* Hidden file inputs */}
-        <input
-          ref={imageInputRef}
-          type="file"
-          accept="image/*"
-          multiple
-          className="hidden"
-          onChange={(e) => handleFileSelect(e, "image")}
-        />
-        <input
-          ref={cameraInputRef}
-          type="file"
-          accept="image/*"
-          capture="environment"
-          className="hidden"
-          onChange={(e) => handleFileSelect(e, "image")}
-        />
-        <input
-          ref={fileInputRef}
-          type="file"
-          multiple
-          className="hidden"
-          onChange={(e) => handleFileSelect(e, "file")}
-        />
-
-        <div className="flex items-center gap-2">
-          <Popover open={isUploadOpen} onOpenChange={setIsUploadOpen}>
-            <PopoverTrigger asChild>
-              <button
-                className="flex h-10 w-10 items-center justify-center rounded-full bg-muted text-muted-foreground hover:bg-muted/80"
-              >
-                <Plus className="h-5 w-5" />
-              </button>
-            </PopoverTrigger>
-            <PopoverContent className="w-48 p-2" side="top" align="start">
-              <div className="flex flex-col gap-1">
-                <button
-                  onClick={() => {
-                    imageInputRef.current?.click();
-                  }}
-                  className="flex items-center gap-3 rounded-lg px-3 py-2 text-sm hover:bg-muted"
-                >
-                  <Image className="h-4 w-4 text-primary" />
-                  <span>Upload Image</span>
-                </button>
-                <button
-                  onClick={() => {
-                    cameraInputRef.current?.click();
-                  }}
-                  className="flex items-center gap-3 rounded-lg px-3 py-2 text-sm hover:bg-muted"
-                >
-                  <Camera className="h-4 w-4 text-primary" />
-                  <span>Take Photo</span>
-                </button>
-                <button
-                  onClick={() => {
-                    fileInputRef.current?.click();
-                  }}
-                  className="flex items-center gap-3 rounded-lg px-3 py-2 text-sm hover:bg-muted"
-                >
-                  <File className="h-4 w-4 text-primary" />
-                  <span>Upload File</span>
-                </button>
-              </div>
-            </PopoverContent>
-          </Popover>
-
-          <input
-            type="text"
-            value={inputText}
-            onChange={(e) => setInputText(e.target.value)}
-            onKeyPress={handleKeyPress}
-            placeholder="Type a message..."
-            className="flex-1 rounded-full border border-border bg-background px-4 py-2.5 text-sm text-foreground outline-none focus:ring-2 focus:ring-primary/20"
-          />
-          <button
-            onClick={sendMessage}
-            disabled={!inputText.trim() && attachments.length === 0}
-            className="flex h-10 w-10 items-center justify-center rounded-full bg-primary text-primary-foreground disabled:opacity-50"
-          >
-            <Send className="h-5 w-5" />
-          </button>
+      {/* Listening Indicator */}
+      {isListening && (
+        <div className="fixed bottom-[90px] left-1/2 -translate-x-1/2 z-40 flex items-center justify-center gap-2 rounded-full bg-destructive/90 backdrop-blur-sm px-4 py-2 shadow-lg">
+          <Mic className="h-4 w-4 text-white animate-pulse" />
+          <span className="text-sm text-white font-medium">Listening...</span>
         </div>
+      )}
+
+      {/* Input - Sticky Bottom */}
+      <div className="fixed bottom-0 left-0 right-0 z-50 max-w-md mx-auto bg-card shadow-[0_-2px_10px_rgba(0,0,0,0.1)]">
+        <div className="px-4 py-3">
+          {/* Hidden file inputs */}
+          <input
+            ref={imageInputRef}
+            type="file"
+            accept="image/*"
+            multiple
+            className="hidden"
+            onChange={(e) => handleFileSelect(e, "image")}
+          />
+          <input
+            ref={cameraInputRef}
+            type="file"
+            accept="image/*"
+            capture="environment"
+            className="hidden"
+            onChange={(e) => handleFileSelect(e, "image")}
+          />
+          <input
+            ref={fileInputRef}
+            type="file"
+            multiple
+            className="hidden"
+            onChange={(e) => handleFileSelect(e, "file")}
+          />
+
+          <div className="flex items-center gap-2">
+            <Popover open={isUploadOpen} onOpenChange={setIsUploadOpen}>
+              <PopoverTrigger asChild>
+                <button className="flex h-10 w-10 items-center justify-center rounded-full bg-muted text-muted-foreground hover:bg-muted/80">
+                  <Plus className="h-5 w-5" />
+                </button>
+              </PopoverTrigger>
+              <PopoverContent className="w-48 p-2" side="top" align="start">
+                <div className="flex flex-col gap-1">
+                  <button
+                    onClick={() => {
+                      imageInputRef.current?.click();
+                    }}
+                    className="flex items-center gap-3 rounded-lg px-3 py-2 text-sm hover:bg-muted"
+                  >
+                    <Image className="h-4 w-4 text-primary" />
+                    <span>Upload Image</span>
+                  </button>
+                  <button
+                    onClick={() => {
+                      cameraInputRef.current?.click();
+                    }}
+                    className="flex items-center gap-3 rounded-lg px-3 py-2 text-sm hover:bg-muted"
+                  >
+                    <Camera className="h-4 w-4 text-primary" />
+                    <span>Take Photo</span>
+                  </button>
+                  <button
+                    onClick={() => {
+                      fileInputRef.current?.click();
+                    }}
+                    className="flex items-center gap-3 rounded-lg px-3 py-2 text-sm hover:bg-muted"
+                  >
+                    <File className="h-4 w-4 text-primary" />
+                    <span>Upload File</span>
+                  </button>
+                </div>
+              </PopoverContent>
+            </Popover>
+
+            {/* Mic button for speech-to-text */}
+            <button
+              onClick={toggleListening}
+              className={`flex h-10 w-10 items-center justify-center rounded-full transition-all ${
+                isListening
+                  ? "bg-destructive text-white animate-pulse"
+                  : "bg-muted text-muted-foreground hover:bg-muted/80"
+              }`}
+              title={isListening ? "Stop listening" : "Start voice input"}
+            >
+              {isListening ? (
+                <MicOff className="h-5 w-5" />
+              ) : (
+                <Mic className="h-5 w-5" />
+              )}
+            </button>
+
+            <input
+              type="text"
+              value={inputText}
+              onChange={(e) => setInputText(e.target.value)}
+              onKeyPress={handleKeyPress}
+              placeholder="Type a message..."
+              className="flex-1 rounded-full border border-border bg-background px-4 py-2.5 text-sm text-foreground outline-none focus:ring-2 focus:ring-primary/20"
+              disabled={isLoading}
+            />
+            <button
+              data-send-btn
+              onClick={sendMessage}
+              disabled={
+                (!inputText.trim() && attachments.length === 0) || isLoading
+              }
+              className="flex h-10 w-10 items-center justify-center rounded-full bg-primary text-primary-foreground disabled:opacity-50"
+            >
+              {isLoading ? (
+                <Loader2 className="h-5 w-5 animate-spin" />
+              ) : (
+                <Send className="h-5 w-5" />
+              )}
+            </button>
+          </div>
+        </div>
+        {/* Safe area spacer for devices with notch */}
+        <div className="safe-bottom" />
       </div>
     </MobileLayout>
   );
