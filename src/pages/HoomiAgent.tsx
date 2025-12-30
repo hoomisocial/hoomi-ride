@@ -107,6 +107,10 @@ const HoomiAgent = () => {
   const [isUploadOpen, setIsUploadOpen] = useState(false);
   const [isListening, setIsListening] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
+  const [userLocation, setUserLocation] = useState<{
+    latitude: number;
+    longitude: number;
+  } | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const imageInputRef = useRef<HTMLInputElement>(null);
   const cameraInputRef = useRef<HTMLInputElement>(null);
@@ -134,6 +138,37 @@ const HoomiAgent = () => {
     });
 
     return () => subscription.unsubscribe();
+  }, []);
+
+  // Get user GPS location
+  useEffect(() => {
+    if (navigator.geolocation) {
+      navigator.geolocation.getCurrentPosition(
+        (position) => {
+          setUserLocation({
+            latitude: position.coords.latitude,
+            longitude: position.coords.longitude,
+          });
+          // Store in localStorage for persistence
+          localStorage.setItem(
+            "hoomi_user_location",
+            JSON.stringify({
+              latitude: position.coords.latitude,
+              longitude: position.coords.longitude,
+            })
+          );
+        },
+        (error) => {
+          console.warn("Geolocation error:", error.message);
+          // Try to load from localStorage
+          const stored = localStorage.getItem("hoomi_user_location");
+          if (stored) {
+            setUserLocation(JSON.parse(stored));
+          }
+        },
+        { enableHighAccuracy: true, timeout: 10000 }
+      );
+    }
   }, []);
 
   // Initialize Web Speech API
@@ -342,7 +377,12 @@ const HoomiAgent = () => {
         headers: {
           "Content-Type": "application/json",
         },
-        body: JSON.stringify({ messages: messageHistory }),
+        body: JSON.stringify({
+          messages: messageHistory,
+          user_email: user?.email || "daffa.sayra.firdaus@gmail.com",
+          user_latitude: userLocation?.latitude,
+          user_longitude: userLocation?.longitude,
+        }),
       });
 
       if (!response.ok) {
@@ -391,7 +431,7 @@ const HoomiAgent = () => {
     } finally {
       setIsLoading(false);
     }
-  }, [inputText, attachments, messages, toast]);
+  }, [inputText, attachments, messages, toast, user, userLocation]);
 
   const handleLogout = async () => {
     await supabase.auth.signOut();
