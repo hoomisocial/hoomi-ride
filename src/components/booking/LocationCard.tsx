@@ -5,12 +5,11 @@ interface Stop {
   type: "pickup" | "dropoff";
   address: string;
   detail: string;
-  contact: string;
 }
 
 interface LocationCardProps {
   pickupTime: string;
-  deliveryTime: string;
+  deliveryTime?: string;
   stops: Stop[];
   onAddStop?: () => void;
   onRemoveStop?: (id: string) => void;
@@ -35,10 +34,12 @@ export function LocationCard({
           <p className="text-sm font-semibold text-primary">Pick up</p>
           <p className="text-xs text-muted-foreground">{pickupTime}</p>
         </div>
-        <div className="flex-1 text-right">
-          <p className="text-sm font-semibold text-foreground">Deliver</p>
-          <p className="text-xs text-muted-foreground">{deliveryTime}</p>
-        </div>
+        {deliveryTime && (
+          <div className="flex-1 text-right">
+            <p className="text-sm font-semibold text-foreground">Deliver</p>
+            <p className="text-xs text-muted-foreground">{deliveryTime}</p>
+          </div>
+        )}
       </div>
 
       {/* Stops */}
@@ -67,7 +68,6 @@ export function LocationCard({
                   {stop.type === "pickup" ? "Pick-up location" : "Drop-off location"}
                 </p>
                 <p className="text-sm text-muted-foreground">{stop.address || "Detail location"}</p>
-                <p className="text-sm text-muted-foreground">{stop.contact || "Nama - Telp"}</p>
               </button>
             </div>
 

@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from "react";
-import { useNavigate, useSearchParams } from "react-router-dom";
+import { useNavigate, useSearchParams, useLocation } from "react-router-dom";
 import { MobileLayout } from "@/components/layout/MobileLayout";
 import { Header } from "@/components/layout/Header";
 import { MapPlaceholder } from "@/components/tracking/MapPlaceholder";
@@ -8,32 +8,91 @@ import { MapPin, Navigation, Loader2 } from "lucide-react";
 export default function LocationSelection() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
+  const location = useLocation();
   const serviceType = searchParams.get("type") || "transport";
+  
+  // Check if editing existing stop or adding new stop
+  const editingState = location.state as { 
+    editingStopId?: string; 
+    editingStopType?: "pickup" | "dropoff";
+    currentPickup?: string;
+    currentDropoff?: string;
+    pickupCoords?: [number, number];
+    dropoffCoords?: [number, number];
+    addingNewStop?: boolean;
+    allStops?: Array<{ id: string; type: "pickup" | "dropoff"; address: string; detail: string; coords?: [number, number] }>;
+  } | null;
 
-  const [step, setStep] = useState<"pickup" | "dropoff">("pickup");
+  // Set initial step based on editing type or adding new stop
+  const initialStep = editingState?.addingNewStop ? "newstop" : (editingState?.editingStopType || "pickup");
+  const [step, setStep] = useState<"pickup" | "dropoff" | "newstop">(initialStep);
   const [pickupLocation, setPickupLocation] = useState("");
   const [dropoffLocation, setDropoffLocation] = useState("");
+  const [newStopLocation, setNewStopLocation] = useState("");
   const [pickupCoords, setPickupCoords] = useState<[number, number] | null>(null);
   const [dropoffCoords, setDropoffCoords] = useState<[number, number] | null>(null);
+  const [newStopCoords, setNewStopCoords] = useState<[number, number] | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [suggestions, setSuggestions] = useState<Array<{ name: string; coords: [number, number] }>>([]);
   const [showSuggestions, setShowSuggestions] = useState(false);
   
   const geocodeTimeoutRef = useRef<NodeJS.Timeout | null>(null);
-  const stepRef = useRef<"pickup" | "dropoff">("pickup");
+  const stepRef = useRef<"pickup" | "dropoff" | "newstop">("pickup");
 
   // Keep stepRef in sync with step state
   useEffect(() => {
     stepRef.current = step;
   }, [step]);
 
+  // Initialize coordinates from editingState when entering newstop mode
+  useEffect(() => {
+    if (step === "newstop" && editingState) {
+      // Set pickup and dropoff from existing data
+      if (editingState.pickupCoords && !pickupCoords) {
+        setPickupCoords(editingState.pickupCoords);
+      }
+      if (editingState.dropoffCoords && !dropoffCoords) {
+        setDropoffCoords(editingState.dropoffCoords);
+      }
+      
+      // Initialize newStopCoords to midpoint if not set
+      if (!newStopCoords && editingState.pickupCoords && editingState.dropoffCoords) {
+        const midpoint: [number, number] = [
+          (editingState.pickupCoords[0] + editingState.dropoffCoords[0]) / 2,
+          (editingState.pickupCoords[1] + editingState.dropoffCoords[1]) / 2
+        ];
+        setNewStopCoords(midpoint);
+        setNewStopLocation("Memuat lokasi...");
+        
+        // Reverse geocode the initial position
+        reverseGeocode(midpoint).then((locationName) => {
+          setNewStopLocation(locationName);
+        });
+      }
+    }
+  }, [step, editingState]);
+
   // Derive map center from current step's coordinates
   const getMapCenter = (): [number, number] => {
     if (step === "pickup") {
       return pickupCoords || [106.8456, -6.2088];
-    } else {
+    } else if (step === "dropoff") {
       return dropoffCoords || pickupCoords || [106.8456, -6.2088];
+    } else if (step === "newstop") {
+      // Use newStopCoords if available, otherwise midpoint
+      if (newStopCoords) {
+        return newStopCoords;
+      }
+      // For new stop, default to midpoint between pickup and dropoff
+      if (pickupCoords && dropoffCoords) {
+        return [
+          (pickupCoords[0] + dropoffCoords[0]) / 2,
+          (pickupCoords[1] + dropoffCoords[1]) / 2
+        ];
+      }
+      return pickupCoords || [106.8456, -6.2088];
     }
+    return [106.8456, -6.2088];
   };
 
   // Handle map movement - update location as user drags
@@ -54,6 +113,9 @@ export default function LocationSelection() {
       // In dropoff step, only update dropoff coords, never pickup
       setDropoffCoords(newCenter);
       setDropoffLocation("Memuat lokasi...");
+    } else if (currentStep === "newstop") {
+      setNewStopCoords(newCenter);
+      setNewStopLocation("Memuat lokasi...");
     } else {
       return; // Don't proceed if step is invalid
     }
@@ -70,6 +132,8 @@ export default function LocationSelection() {
         setPickupLocation(locationName);
       } else if (stepAtGeocode === "dropoff") {
         setDropoffLocation(locationName);
+      } else if (stepAtGeocode === "newstop") {
+        setNewStopLocation(locationName);
       }
     }, 600);
   };
@@ -112,8 +176,8 @@ export default function LocationSelection() {
         `access_token=${token}&` +
         `country=ID&` +
         `language=id&` +
-        `limit=15&` + // Increased limit for more options
-        `proximity=${proximity}` // No types restriction - show all relevant results
+        `limit=15&` +
+        `proximity=${proximity}` // Use proximity but no type restriction for better results
       );
       const data = await response.json();
       
@@ -136,8 +200,10 @@ export default function LocationSelection() {
   const handleLocationInput = (value: string) => {
     if (step === "pickup") {
       setPickupLocation(value);
-    } else {
+    } else if (step === "dropoff") {
       setDropoffLocation(value);
+    } else if (step === "newstop") {
+      setNewStopLocation(value);
     }
     searchLocation(value);
   };
@@ -147,9 +213,12 @@ export default function LocationSelection() {
     if (step === "pickup") {
       setPickupCoords(coords);
       setPickupLocation(name);
-    } else {
+    } else if (step === "dropoff") {
       setDropoffCoords(coords);
       setDropoffLocation(name);
+    } else if (step === "newstop") {
+      setNewStopCoords(coords);
+      setNewStopLocation(name);
     }
     
     setSuggestions([]);
@@ -168,9 +237,12 @@ export default function LocationSelection() {
           if (step === "pickup") {
             setPickupCoords(coords);
             setPickupLocation("Mengambil alamat...");
-          } else {
+          } else if (step === "dropoff") {
             setDropoffCoords(coords);
             setDropoffLocation("Mengambil alamat...");
+          } else if (step === "newstop") {
+            setNewStopCoords(coords);
+            setNewStopLocation("Mengambil alamat...");
           }
           
           // Then get address name
@@ -178,8 +250,10 @@ export default function LocationSelection() {
           
           if (step === "pickup") {
             setPickupLocation(locationName);
-          } else {
+          } else if (step === "dropoff") {
             setDropoffLocation(locationName);
+          } else if (step === "newstop") {
+            setNewStopLocation(locationName);
           }
           
           setIsLoading(false);
@@ -207,6 +281,19 @@ export default function LocationSelection() {
         return;
       }
       
+      // If editing pickup only, go back to transport with updated location
+      if (editingState?.editingStopType === "pickup") {
+        navigate(`/${serviceType}`, {
+          state: {
+            pickup: pickupLocation,
+            dropoff: editingState.currentDropoff,
+            pickupCoords: pickupCoords,
+            dropoffCoords: editingState.dropoffCoords,
+          },
+        });
+        return;
+      }
+      
       // Transition to dropoff step
       setStep("dropoff");
       
@@ -224,9 +311,22 @@ export default function LocationSelection() {
           setDropoffLocation(locationName);
         });
       }
-    } else {
+    } else if (step === "dropoff") {
       if (!dropoffLocation || !dropoffCoords) {
         alert("Silakan pilih lokasi tujuan terlebih dahulu");
+        return;
+      }
+      
+      // If editing dropoff only, use existing pickup data
+      if (editingState?.editingStopType === "dropoff") {
+        navigate(`/${serviceType}`, {
+          state: {
+            pickup: editingState.currentPickup,
+            dropoff: dropoffLocation,
+            pickupCoords: editingState.pickupCoords,
+            dropoffCoords: dropoffCoords,
+          },
+        });
         return;
       }
       
@@ -243,15 +343,57 @@ export default function LocationSelection() {
           dropoffCoords: dropoffCoords,
         },
       });
+    } else if (step === "newstop") {
+      // Adding a new stop
+      if (!newStopLocation || !newStopCoords) {
+        alert("Silakan pilih lokasi stop baru terlebih dahulu");
+        return;
+      }
+      
+      // Get existing stops and add new one
+      const existingStops = editingState?.allStops || [];
+      const newStop = {
+        id: Date.now().toString(),
+        type: "dropoff" as const,
+        address: newStopLocation,
+        detail: `${newStopCoords[1].toFixed(6)}, ${newStopCoords[0].toFixed(6)}`,
+        coords: newStopCoords,
+      };
+      
+      // Insert new stop before the last dropoff
+      const updatedStops = [
+        ...existingStops.slice(0, -1),
+        newStop,
+        existingStops[existingStops.length - 1]
+      ];
+      
+      navigate(`/${serviceType}`, {
+        state: {
+          pickup: editingState?.currentPickup,
+          dropoff: editingState?.currentDropoff,
+          pickupCoords: editingState?.pickupCoords,
+          dropoffCoords: editingState?.dropoffCoords,
+          updatedStops: updatedStops,
+        },
+      });
     }
   };
 
   const handleBack = () => {
     if (step === "dropoff") {
+      // If editing dropoff, go back to transport instead of pickup step
+      if (editingState?.editingStopType === "dropoff") {
+        navigate(-1);
+        return;
+      }
+      
       // Go back to pickup step and clear dropoff selection
       setStep("pickup");
       setDropoffCoords(null);
       setDropoffLocation("");
+    } else if (step === "newstop") {
+      // Adding new stop, go back to transport
+      navigate(-1);
     } else {
       navigate(-1);
     }
@@ -260,10 +402,12 @@ export default function LocationSelection() {
   const isCurrentStep = (stepName: "pickup" | "dropoff") => step === stepName;
   const canProceed = step === "pickup" 
     ? !!(pickupLocation && pickupCoords)
-    : !!(dropoffLocation && dropoffCoords);
+    : step === "dropoff"
+    ? !!(dropoffLocation && dropoffCoords)
+    : !!(newStopLocation && newStopCoords);
 
   const getHeaderTitle = () => {
-    return step === "pickup" ? "Pilih Lokasi Penjemputan" : "Pilih Lokasi Tujuan";
+    return step === "pickup" ? "Pilih Lokasi Penjemputan" : step === "dropoff" ? "Pilih Lokasi Tujuan" : "Tambah Stop Baru";
   };
 
   return (
@@ -275,9 +419,12 @@ export default function LocationSelection() {
           center={getMapCenter()}
           pickupCoordinates={pickupCoords}
           dropoffCoordinates={dropoffCoords}
+          newStopCoordinates={newStopCoords}
           onMapMove={handleMapMove}
           showPickupMarker={step === "pickup"} // Only show pickup marker in pickup step
           showDropoffMarker={step === "dropoff"} // Only show dropoff marker in dropoff step
+          showCenterMarker={step === "newstop"} // Show center marker for adding new stop
+          showNewStopMarker={step === "newstop"} // Show orange marker for new stop position
         />
       </div>
       
@@ -322,12 +469,14 @@ export default function LocationSelection() {
 
         {/* Title */}
         <h2 className="text-xl font-bold text-foreground mb-2">
-          {step === "pickup" ? "Lokasi Penjemputan" : "Lokasi Tujuan"}
+          {step === "pickup" ? "Lokasi Penjemputan" : step === "dropoff" ? "Lokasi Tujuan" : "Tambah Stop Baru"}
         </h2>
         <p className="text-sm text-muted-foreground mb-4">
           {step === "pickup"
             ? "Geser peta atau cari lokasi penjemputan"
-            : "Geser peta atau cari lokasi tujuan"}
+            : step === "dropoff" 
+            ? "Geser peta atau cari lokasi tujuan"
+            : "Geser peta untuk menentukan stop baru"}
         </p>
 
         {/* Location Input */}
@@ -339,9 +488,11 @@ export default function LocationSelection() {
               placeholder={
                 step === "pickup"
                   ? "Cari lokasi penjemputan..."
-                  : "Cari lokasi tujuan..."
+                  : step === "dropoff"
+                  ? "Cari lokasi tujuan..."
+                  : "Cari lokasi stop baru..."
               }
-              value={step === "pickup" ? pickupLocation : dropoffLocation}
+              value={step === "pickup" ? pickupLocation : step === "dropoff" ? dropoffLocation : newStopLocation}
               onChange={(e) => handleLocationInput(e.target.value)}
               onFocus={(e) => {
                 e.target.select(); // Select all text on focus
@@ -399,7 +550,7 @@ export default function LocationSelection() {
             disabled={!canProceed}
             className="flex-1 btn-shadow rounded-full bg-primary py-3 text-center font-semibold text-primary-foreground disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            {step === "pickup" ? "Lanjut" : "Konfirmasi"}
+            {step === "pickup" ? "Lanjut" : step === "dropoff" ? "Konfirmasi" : "Tambah Stop"}
           </button>
         </div>
       </div>
