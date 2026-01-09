@@ -5,16 +5,18 @@ interface Stop {
   type: "pickup" | "dropoff";
   address: string;
   detail: string;
-  contact: string;
+  coords?: [number, number];
+  contact?: string;
 }
 
 interface LocationCardProps {
   pickupTime: string;
-  deliveryTime: string;
+  deliveryTime?: string;
   stops: Stop[];
   onAddStop?: () => void;
   onRemoveStop?: (id: string) => void;
   onEditStop?: (id: string) => void;
+  className?: string;
 }
 
 export function LocationCard({
@@ -24,19 +26,22 @@ export function LocationCard({
   onAddStop,
   onRemoveStop,
   onEditStop,
+  className = "",
 }: LocationCardProps) {
   return (
-    <div className="card-shadow mx-4 rounded-2xl bg-card p-4">
+    <div className={`card-shadow rounded-2xl bg-card p-4 ${className}`}>
       {/* Time Header */}
       <div className="mb-4 flex border-b border-border pb-3">
         <div className="flex-1">
           <p className="text-sm font-semibold text-primary">Pick up</p>
           <p className="text-xs text-muted-foreground">{pickupTime}</p>
         </div>
-        <div className="flex-1 text-right">
-          <p className="text-sm font-semibold text-foreground">Deliver</p>
-          <p className="text-xs text-muted-foreground">{deliveryTime}</p>
-        </div>
+        {deliveryTime && (
+          <div className="flex-1 text-right">
+            <p className="text-sm font-semibold text-foreground">Deliver</p>
+            <p className="text-xs text-muted-foreground">{deliveryTime}</p>
+          </div>
+        )}
       </div>
 
       {/* Stops */}
@@ -65,7 +70,6 @@ export function LocationCard({
                   {stop.type === "pickup" ? "Pick-up location" : "Drop-off location"}
                 </p>
                 <p className="text-sm text-muted-foreground">{stop.address || "Detail location"}</p>
-                <p className="text-sm text-muted-foreground">{stop.contact || "Nama - Telp"}</p>
               </button>
             </div>
 
