@@ -5,6 +5,8 @@ interface Stop {
   type: "pickup" | "dropoff";
   address: string;
   detail: string;
+  coords?: [number, number];
+  contact?: string;
 }
 
 interface LocationCardProps {

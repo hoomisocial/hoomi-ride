@@ -337,13 +337,17 @@ export function MapPlaceholder({
   }, [showPickupMarker, showDropoffMarker, showCenterMarker]);
 
   // Draw route between pickup, intermediate stops, and dropoff
+  // NOTE: Route is STATIC - from Pickup to Dropoff, NOT from driver position
   useEffect(() => {
     if (!map.current || !mapLoaded || !pickupCoordinates || !dropoffCoordinates) return;
 
     const drawRoute = async () => {
       try {
-        // Build coordinates string including intermediate stops
+        // Build coordinates string: Pickup → Intermediate Stops → Dropoff
+        // DO NOT include driver position in route - driver just follows this route
         const coordinateParts: string[] = [];
+        
+        // Start from pickup location (NOT driver position)
         coordinateParts.push(`${pickupCoordinates[0]},${pickupCoordinates[1]}`);
         
         // Add intermediate stops
@@ -353,8 +357,11 @@ export function MapPlaceholder({
           });
         }
         
+        // End at dropoff location
         coordinateParts.push(`${dropoffCoordinates[0]},${dropoffCoordinates[1]}`);
         const coordinates = coordinateParts.join(';');
+        
+        console.log("Drawing route:", coordinateParts);
         
         // Fetch route from Mapbox Directions API
         const response = await fetch(
@@ -431,7 +438,7 @@ export function MapPlaceholder({
     };
 
     drawRoute();
-  }, [mapLoaded, pickupCoordinates, dropoffCoordinates, intermediateStops]);
+  }, [mapLoaded, pickupCoordinates, dropoffCoordinates, intermediateStops, autoFitBounds]);
 
   return (
     <div className={className || 'relative h-64'} style={{ touchAction: 'pan-x pan-y', pointerEvents: 'auto' }}>

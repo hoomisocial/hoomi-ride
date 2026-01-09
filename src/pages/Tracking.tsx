@@ -19,13 +19,15 @@ const Tracking = () => {
     estimatedTime: string;
     distance: string;
     price: number;
+    packageDetails?: {
+      weight: string;
+      dimensions: string;
+      description: string;
+    };
+    orderType?: "transport" | "delivery";
   } | null;
 
-  // Tracking states
-  const [currentStatus, setCurrentStatus] = useState<"on_way_to_pickup" | "arrived_at_pickup" | "picking_up" | "on_way_to_dropoff" | "arrived_at_dropoff" | "completed">("on_way_to_pickup");
-  const [driverPosition, setDriverPosition] = useState<[number, number] | null>(null);
-  const [progress, setProgress] = useState(0); // 0-100%
-
+  // Define stops first before using it
   const stops = orderData?.stops || [
     {
       id: "1",
@@ -41,94 +43,189 @@ const Tracking = () => {
     },
   ];
 
-  // Initialize driver position (start slightly offset from pickup)
-  useEffect(() => {
-    if (orderData?.pickupCoords) {
-      // Start driver 500m away from pickup
-      const offset = 0.005; // ~500m
-      setDriverPosition([
-        orderData.pickupCoords[0] - offset,
-        orderData.pickupCoords[1] - offset
-      ]);
-    }
-  }, [orderData?.pickupCoords]);
+  // Get coordinates from stops array as fallback
+  const pickupCoords = orderData?.pickupCoords || stops.find(s => s.type === "pickup")?.coords || null;
+  const dropoffCoords = orderData?.dropoffCoords || stops.find(s => s.type === "dropoff")?.coords || null;
 
-  // Simulate driver movement
+  // Tracking states
+  const [currentStatus, setCurrentStatus] = useState<"on_way_to_pickup" | "arrived_at_pickup" | "picking_up" | "on_way_to_dropoff" | "arrived_at_dropoff" | "completed">("on_way_to_pickup");
+  const [driverPosition, setDriverPosition] = useState<[number, number] | null>(null);
+  const [progress, setProgress] = useState(0); // 0-100%
+  const [isInitialized, setIsInitialized] = useState(false);
+  const [routeCoordinates, setRouteCoordinates] = useState<[number, number][]>([]);
+  const [currentRouteIndex, setCurrentRouteIndex] = useState(0);
+
+  const MAPBOX_ACCESS_TOKEN = import.meta.env.VITE_MAPBOX_ACCESS_TOKEN || "pk.eyJ1IjoiaG9vbWktcmlkZSIsImEiOiJjbTRyZXhhbWowMDFqMmlzZ3d2OXF4cnN4In0.PLACEHOLDER";
+
+  // Debug: Log coordinates to verify pickup and dropoff are correct
   useEffect(() => {
-    if (!driverPosition || !orderData?.pickupCoords || !orderData?.dropoffCoords) return;
+    console.log("=== TRACKING INITIALIZATION ===");
+    console.log("Order Data:", orderData);
+    console.log("Pickup Coords:", pickupCoords);
+    console.log("Dropoff Coords:", dropoffCoords);
+    console.log("All Stops:", stops);
+  }, []);
+
+  // Fetch route coordinates from Mapbox API
+  useEffect(() => {
+    const fetchRoute = async () => {
+      if (!pickupCoords || !dropoffCoords) return;
+
+      try {
+        // Build route: Pickup -> Dropoff
+        const coordinates = `${pickupCoords[0]},${pickupCoords[1]};${dropoffCoords[0]},${dropoffCoords[1]}`;
+        
+        const response = await fetch(
+          `https://api.mapbox.com/directions/v5/mapbox/driving/${coordinates}?` +
+          `geometries=geojson&` +
+          `access_token=${MAPBOX_ACCESS_TOKEN}`
+        );
+        const data = await response.json();
+
+        if (data.routes && data.routes.length > 0) {
+          const route = data.routes[0].geometry.coordinates;
+          console.log("🗺️ Route fetched:", route.length, "points");
+          setRouteCoordinates(route as [number, number][]);
+        }
+      } catch (error) {
+        console.error("Error fetching route:", error);
+      }
+    };
+
+    fetchRoute();
+  }, [pickupCoords, dropoffCoords]);
+
+  // Initialize driver position ONCE (start slightly offset from pickup)
+  useEffect(() => {
+    if (!isInitialized && pickupCoords && routeCoordinates.length > 0) {
+      // Reset everything to initial state
+      setProgress(0);
+      setCurrentStatus("on_way_to_pickup");
+      
+      // Start driver at the beginning of the route (close to pickup)
+      const initialPosition = routeCoordinates[0];
+      
+      console.log("🚗 INITIALIZING DRIVER");
+      console.log("  Initial Position:", initialPosition);
+      console.log("  Route has", routeCoordinates.length, "points");
+      console.log("  Target PICKUP:", pickupCoords);
+      console.log("  Final DROPOFF:", dropoffCoords);
+      
+      setDriverPosition(initialPosition);
+      setCurrentRouteIndex(0);
+      setIsInitialized(true);
+    }
+  }, [pickupCoords, dropoffCoords, isInitialized, routeCoordinates]);
+
+  // Simulate driver movement along the route
+  useEffect(() => {
+    if (!driverPosition || !pickupCoords || !dropoffCoords || !isInitialized || routeCoordinates.length === 0) {
+      console.log("⏸️ Movement paused - waiting for initialization");
+      return;
+    }
+
+    console.log("▶️ Starting driver movement simulation");
 
     const interval = setInterval(() => {
       setProgress(prev => {
-        const newProgress = prev + 2; // Increment by 2%
+        const newProgress = Math.min(prev + 0.5, 100); // Very slow: 0.5% per second (200 seconds total)
         
         // Update status based on progress
         if (newProgress >= 100) {
           setCurrentStatus("completed");
-          clearInterval(interval);
-          return 100;
         } else if (newProgress >= 90) {
           setCurrentStatus("arrived_at_dropoff");
         } else if (newProgress >= 60) {
           setCurrentStatus("on_way_to_dropoff");
+        } else if (newProgress >= 45) {
+          setCurrentStatus("picking_up"); // Stay at pickup for loading
         } else if (newProgress >= 40) {
-          setCurrentStatus("picking_up");
-        } else if (newProgress >= 20) {
-          setCurrentStatus("arrived_at_pickup");
+          setCurrentStatus("arrived_at_pickup"); // Arrived at pickup
         } else {
           setCurrentStatus("on_way_to_pickup");
         }
         
         return newProgress;
       });
-
-      // Move driver position
-      setDriverPosition(prev => {
-        if (!prev || !orderData.pickupCoords || !orderData.dropoffCoords) return prev;
-        
-        let targetCoords: [number, number];
-        
-        // Determine target based on progress - ALWAYS GO TO PICKUP FIRST
-        if (progress < 20) {
-          // Phase 1: Moving to pickup location
-          targetCoords = orderData.pickupCoords;
-        } else if (progress < 40) {
-          // Phase 2: At pickup location (waiting/picking up)
-          targetCoords = orderData.pickupCoords;
-        } else if (progress < 90) {
-          // Phase 3: Moving to dropoff (via intermediate stops if any)
-          const intermediateStops = stops.slice(1, -1).filter(s => s.coords);
-          
-          if (intermediateStops.length > 0 && progress < 70) {
-            // Moving through intermediate stops
-            const stopProgress = (progress - 40) / 30; // 0 to 1
-            const stopIndex = Math.floor(stopProgress * intermediateStops.length);
-            targetCoords = intermediateStops[Math.min(stopIndex, intermediateStops.length - 1)].coords!;
-          } else {
-            // Moving to final dropoff
-            targetCoords = orderData.dropoffCoords;
-          }
-        } else {
-          // Phase 4: At dropoff location
-          targetCoords = orderData.dropoffCoords;
-        }
-        
-        // Calculate new position (linear interpolation)
-        const step = 0.0002; // Speed of movement
-        const dx = targetCoords[0] - prev[0];
-        const dy = targetCoords[1] - prev[1];
-        const distance = Math.sqrt(dx * dx + dy * dy);
-        
-        if (distance < 0.0001) return targetCoords; // Arrived
-        
-        return [
-          prev[0] + (dx / distance) * step,
-          prev[1] + (dy / distance) * step
-        ];
-      });
-    }, 1000); // Update every second
+    }, 1000);
 
     return () => clearInterval(interval);
-  }, [driverPosition, orderData, progress, stops]);
+  }, [driverPosition, pickupCoords, dropoffCoords, isInitialized, routeCoordinates]);
+
+  // Move driver along the route based on progress
+  useEffect(() => {
+    if (!isInitialized || routeCoordinates.length === 0) return;
+
+    // Calculate which point on the route the driver should be at
+    let targetIndex: number;
+    let phase: string;
+
+    if (progress < 40) {
+      // Phase 1: Moving to pickup (0-40%) - use first 30% of route points
+      const pickupPortionLength = Math.floor(routeCoordinates.length * 0.3);
+      const progressInPhase = progress / 40; // 0 to 1
+      targetIndex = Math.floor(progressInPhase * pickupPortionLength);
+      phase = "MOVING TO PICKUP";
+    } else if (progress < 45) {
+      // Phase 2: Arrived at pickup (40-45%) - stay at pickup location
+      const pickupPortionLength = Math.floor(routeCoordinates.length * 0.3);
+      targetIndex = pickupPortionLength; // Stay at this point
+      phase = "ARRIVED AT PICKUP";
+    } else if (progress < 60) {
+      // Phase 3: Loading at pickup (45-60%) - stay at pickup location
+      const pickupPortionLength = Math.floor(routeCoordinates.length * 0.3);
+      targetIndex = pickupPortionLength; // Stay at this point
+      phase = "LOADING AT PICKUP";
+    } else if (progress < 90) {
+      // Phase 4: Moving to dropoff (60-90%) - use remaining 70% of route points
+      const pickupPortionLength = Math.floor(routeCoordinates.length * 0.3);
+      const remainingPoints = routeCoordinates.length - pickupPortionLength;
+      const progressInPhase = (progress - 60) / 30; // 0 to 1
+      targetIndex = pickupPortionLength + Math.floor(progressInPhase * remainingPoints);
+      phase = "MOVING TO DROPOFF";
+    } else {
+      // Phase 5: At dropoff (90-100%)
+      targetIndex = routeCoordinates.length - 1;
+      phase = "ARRIVED AT DROPOFF";
+    }
+
+    // Ensure index is within bounds
+    targetIndex = Math.max(0, Math.min(targetIndex, routeCoordinates.length - 1));
+
+    // Log every 5%
+    if (Math.floor(progress) % 5 === 0 && Math.floor(progress) !== Math.floor(progress - 0.5)) {
+      console.log(`📍 Progress ${progress.toFixed(1)}%: ${phase}, Route Point ${targetIndex}/${routeCoordinates.length}`);
+    }
+
+    // Smoothly move driver towards target point
+    setDriverPosition(prev => {
+      if (!prev) return routeCoordinates[targetIndex];
+
+      const target = routeCoordinates[targetIndex];
+      const dx = target[0] - prev[0];
+      const dy = target[1] - prev[1];
+      const distance = Math.sqrt(dx * dx + dy * dy);
+
+      // If very close to target, snap to it
+      if (distance < 0.00005) {
+        setCurrentRouteIndex(targetIndex);
+        return target;
+      }
+
+      // Move smoothly towards target
+      const step = Math.min(0.0001, distance); // Don't overshoot
+      const newPos: [number, number] = [
+        prev[0] + (dx / distance) * step,
+        prev[1] + (dy / distance) * step
+      ];
+
+      return newPos;
+    });
+
+    if (progress >= 100) {
+      console.log("✅ Journey completed!");
+    }
+  }, [progress, isInitialized, routeCoordinates]);
 
   // Get status message
   const getStatusMessage = () => {
@@ -161,9 +258,9 @@ const Tracking = () => {
       {/* Fullscreen Map Background */}
       <MapPlaceholder 
         className="absolute inset-0 w-full h-full z-0"
-        center={driverPosition || orderData?.pickupCoords || [106.8456, -6.2088]}
-        pickupCoordinates={orderData?.pickupCoords || null}
-        dropoffCoordinates={orderData?.dropoffCoords || null}
+        center={driverPosition || pickupCoords || [106.8456, -6.2088]}
+        pickupCoordinates={pickupCoords}
+        dropoffCoordinates={dropoffCoords}
         intermediateStops={stops.slice(1, -1).filter(s => s.coords).map(s => s.coords!)}
         driverCoordinates={driverPosition}
         showPickupMarker={true}
