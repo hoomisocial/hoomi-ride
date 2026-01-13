@@ -15,9 +15,9 @@
     --popover: 0 0% 100%;
     --popover-foreground: 250 20% 10%;
 
-    --primary: 270 70% 50%;
-    --primary-light: 270 70% 60%;
-    --primary-dark: 270 70% 40%;
+    --primary: 280 100% 25%;
+    --primary-light: 280 100% 35%;
+    --primary-dark: 280 100% 20%;
     --primary-foreground: 0 0% 100%;
 
     --secondary: 270 30% 95%;
@@ -40,24 +40,24 @@
 
     --border: 220 13% 91%;
     --input: 220 13% 91%;
-    --ring: 270 70% 50%;
+    --ring: 280 100% 25%;
 
     --radius: 1rem;
 
     /* Gradients */
     --gradient-primary: linear-gradient(
       135deg,
-      hsl(270, 70%, 50%) 0%,
-      hsl(280, 80%, 60%) 100%
+      hsl(280, 100%, 25%) 0%,
+      hsl(280, 100%, 35%) 100%
     );
     --gradient-hero: linear-gradient(
       180deg,
-      hsl(270, 70%, 50%) 0%,
+      hsl(280, 100%, 25%) 0%,
       hsl(25, 80%, 60%) 100%
     );
     --gradient-sunset: linear-gradient(
       180deg,
-      hsl(270, 50%, 30%) 0%,
+      hsl(280, 100%, 20%) 0%,
       hsl(25, 90%, 55%) 100%
     );
   }
@@ -88,7 +88,7 @@
   }
 
   .btn-shadow {
-    box-shadow: 0 4px 16px -2px hsl(270 70% 50% / 0.35);
+    box-shadow: 0 4px 16px -2px hsl(280 100% 25% / 0.35);
   }
 
   .safe-bottom {
