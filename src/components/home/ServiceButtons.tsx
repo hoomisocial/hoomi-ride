@@ -1,5 +1,6 @@
-import { Bike, Package } from "lucide-react";
 import { useNavigate } from "react-router-dom";
+import MotorcycleIcon from "@/assets/Motorcycle.svg";
+import BoxIcon from "@/assets/Box.svg";
 
 export function ServiceButtons() {
   const navigate = useNavigate();
@@ -12,9 +13,9 @@ export function ServiceButtons() {
           className="flex flex-col items-center gap-2 rounded-2xl bg-card p-6 shadow-lg transition-transform active:scale-[0.98]"
         >
           <div className="flex h-12 w-12 items-center justify-center rounded-full bg-primary/10">
-            <Bike className="h-6 w-6 text-primary" />
+            <img src={MotorcycleIcon} alt="Transport" className="h-6 w-6" />
           </div>
-          <span className="font-semibold text-foreground">Transport</span>
+          <span className="font-bold text-primary">Transport</span>
         </button>
 
         <button
@@ -22,9 +23,9 @@ export function ServiceButtons() {
           className="flex flex-col items-center gap-2 rounded-2xl bg-card p-6 shadow-lg transition-transform active:scale-[0.98]"
         >
           <div className="flex h-12 w-12 items-center justify-center rounded-full bg-primary/10">
-            <Package className="h-6 w-6 text-primary" />
+            <img src={BoxIcon} alt="Delivery" className="h-6 w-6" />
           </div>
-          <span className="font-semibold text-foreground">Delivery</span>
+          <span className="font-bold text-primary">Delivery</span>
         </button>
       </div>
     </section>

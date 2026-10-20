@@ -553,26 +553,16 @@ export default function LocationSelection() {
         <MapPlaceholder
           className="w-full h-full"
           center={getMapCenter()}
-          pickupCoordinates={pickupCoords}
-          dropoffCoordinates={dropoffCoords}
+          pickupCoordinates={step === "pickup" ? pickupCoords : null}
+          dropoffCoordinates={step === "dropoff" ? dropoffCoords : null}
           intermediateStops={step === "newstop" ? getIntermediateStops() : []} // Show existing stops when adding new stop
           newStopCoordinates={newStopCoords}
           onMapMove={handleMapMove}
-          showPickupMarker={
-            step === "pickup" ||
-            step === "dropoff" ||
-            (step === "newstop" && pickupCoords !== null)
-          } // Always show pickup after it's set
-          showDropoffMarker={
-            step === "dropoff" || (step === "newstop" && dropoffCoords !== null)
-          } // Show dropoff in dropoff step or when adding new stop
+          showPickupMarker={step === "pickup"} // Only show pickup marker when selecting pickup
+          showDropoffMarker={step === "dropoff"} // Only show dropoff marker when selecting dropoff
           showCenterMarker={step === "newstop"} // Show center marker for adding new stop
           showNewStopMarker={step === "newstop"} // Show orange marker for new stop position
-          autoFitBounds={
-            step === "dropoff" &&
-            pickupCoords !== null &&
-            dropoffCoords !== null
-          } // Auto-fit when both locations are set in dropoff step
+          autoFitBounds={false} // Don't auto-fit to prevent route from being drawn
         />
       </div>
 
@@ -697,18 +687,6 @@ export default function LocationSelection() {
             </div>
           )}
         </div>
-
-        {/* Summary if pickup is set and on dropoff step */}
-        {step === "dropoff" && pickupLocation && (
-          <div className="mb-4 p-3 rounded-xl bg-primary/5 border border-primary/20">
-            <p className="text-xs text-muted-foreground mb-1">
-              Lokasi Penjemputan:
-            </p>
-            <p className="text-sm font-medium text-foreground">
-              {pickupLocation}
-            </p>
-          </div>
-        )}
 
         {/* Route info when adding new stop */}
         {step === "newstop" && pickupCoords && dropoffCoords && (

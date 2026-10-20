@@ -1,5 +1,6 @@
-import { Bike, Package } from "lucide-react";
 import { useNavigate } from "react-router-dom";
+import MotorcycleIcon from "@/assets/Motorcycle.svg";
+import BoxIcon from "@/assets/Box.svg";
 
 const recentOrders = [
   { id: 1, type: "transport", date: "2 Nov, 20:03" },
@@ -12,7 +13,7 @@ export function RecentHistory() {
   return (
     <section className="mt-6 px-4 pb-24">
       <h2 className="mb-3 text-lg font-semibold text-foreground">History</h2>
-      
+
       <div className="grid grid-cols-2 gap-3">
         {recentOrders.map((order) => (
           <button
@@ -22,9 +23,9 @@ export function RecentHistory() {
           >
             <div className="flex h-12 w-12 items-center justify-center rounded-full bg-primary/10">
               {order.type === "transport" ? (
-                <Bike className="h-6 w-6 text-primary" />
+                <img src={MotorcycleIcon} alt="Transport" className="h-6 w-6" />
               ) : (
-                <Package className="h-6 w-6 text-primary" />
+                <img src={BoxIcon} alt="Delivery" className="h-6 w-6" />
               )}
             </div>
             <p className="text-xs text-muted-foreground">{order.date}</p>

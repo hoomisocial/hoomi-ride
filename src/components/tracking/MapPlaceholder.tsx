@@ -419,8 +419,7 @@ export function MapPlaceholder({
             isUpdatingFromProp.current = true;
 
             map.current.fitBounds(bounds, {
-              padding: 80,
-              maxZoom: 15,
+              padding: { top: 150, bottom: 250, left: 60, right: 60 },
               duration: 800
             });
 
